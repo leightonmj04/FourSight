@@ -8,6 +8,7 @@
   'use strict';
 
   const C = window.COURSES;
+  const BASE = JSON.parse(JSON.stringify(C)); // the catalog as shipped; C adds each student's changes
   const CATS = window.CATEGORIES;
   const $ = (id) => document.getElementById(id);
   const svgNS = 'http://www.w3.org/2000/svg';
@@ -25,13 +26,14 @@
     tick: '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
     plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
     close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+    edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg>',
+    trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+    pin: '<svg viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3.5 3.5h-11L10 10 9 4Z"/><path d="M12 13.5V20"/></svg>',
     sun: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></svg>',
   };
 
   // ---------------------------------------------------------------- state
   const S = {
-    role: null,
-    studentId: null,
     terms: null,           // [{ kind: 'fall' | 'spring' | 'summer', year }] in chronological order
     plan: null,            // one array of course ids per term
     done: new Set(),       // completed course ids
@@ -43,14 +45,15 @@
     hover: null,
     catFocus: null,        // course type picked in the dropdown
     selected: null,
+    pinned: null,          // course whose chain stays lit while scrolling or hovering elsewhere
+    custom: {},            // courses added with the + button: id -> { code, title, hrs, cat, pre, co, unlocks, custom }
+    edits: {},             // changes to catalog courses: id -> the fields that differ
+    removed: [],           // catalog courses the student deleted
     drag: null,
   };
 
-  const ALL_EDGES = [];    // every requirement in the catalog: { id, from, to, type: 'pre' | 'co' }
-  for (const [id, c] of Object.entries(C)) {
-    for (const p of c.pre || []) if (C[p]) ALL_EDGES.push({ id: `${p}>${id}`, from: p, to: id, type: 'pre' });
-    for (const p of c.co || []) if (C[p]) ALL_EDGES.push({ id: `${p}~${id}`, from: p, to: id, type: 'co' });
-  }
+  let ALL_EDGES = [];      // every requirement in the catalog: { id, from, to, type: 'pre' | 'co' }
+  let EDGES = [];          // the lines actually drawn (see below)
 
   // Lines actually drawn: the transitive reduction. A requirement A -> C is left out when a chain
   // A -> B -> ... -> C already implies it. A strict prerequisite is only implied by a chain that
@@ -60,15 +63,48 @@
   // Edges are removed one at a time and each check only uses lines still kept, so the drawn
   // set always implies everything hidden (this matters for co-requisite pairs, which form loops).
   // Strict prerequisites are considered before co-requisites so the short co-req links stay.
-  const EDGES = (() => {
+  // Recomputed whenever a student adds, edits or deletes a course.
+  function rebuildEdges() {
+    ALL_EDGES = [];
+    const seen = new Set();
+    const add = (from, to, type) => {
+      const id = `${from}${type === 'pre' ? '>' : '~'}${to}`;
+      if (C[from] && C[to] && from !== to && !seen.has(id)) { seen.add(id); ALL_EDGES.push({ id, from, to, type }); }
+    };
+    for (const [id, c] of Object.entries(C)) {
+      // A course with its own "unlocks" list (added or edited) decides which courses it leads to.
+      for (const p of c.pre || []) if (!C[p] || !C[p].unlocks || C[p].unlocks.includes(id)) add(p, id, 'pre');
+      for (const p of c.co || []) add(p, id, 'co');
+      for (const t of c.unlocks || []) add(id, t, 'pre');
+    }
     const kept = ALL_EDGES.slice();
+    updateLegendCounts();
     const order = ALL_EDGES.slice().sort((a, b) => (a.type === b.type ? 0 : a.type === 'pre' ? -1 : 1));
     for (const e of order) {
       const others = kept.filter((f) => f !== e);
       if (impliedByChain(e, others)) kept.splice(kept.indexOf(e), 1);
     }
-    return ALL_EDGES.filter((e) => kept.includes(e));
-  })();
+    EDGES = ALL_EDGES.filter((e) => kept.includes(e));
+  }
+  rebuildEdges();
+
+  // C is the catalog as this student sees it: the shipped courses with their edits, minus the ones
+  // they deleted, plus the ones they added with the + button (marked custom).
+  function applyCourses({ custom = {}, edits = {}, removed = [] } = {}) {
+    S.custom = custom; S.edits = edits; S.removed = removed;
+    for (const id of Object.keys(C)) delete C[id];
+    for (const [id, c] of Object.entries(BASE)) if (!removed.includes(id)) C[id] = { ...c, ...edits[id] };
+    for (const [id, c] of Object.entries(custom)) C[id] = { ...c, custom: true };
+    rebuildEdges();
+  }
+  // After the plan is replaced (reset or transcript), put added courses back in their old term.
+  function keepCustom(oldPlan) {
+    for (const id of Object.keys(S.custom)) {
+      if (semOf(S.plan, id) >= 0) continue;
+      const was = Math.max(0, semOf(oldPlan, id));
+      S.plan[Math.min(was, S.plan.length - 1)].push(id);
+    }
+  }
   function impliedByChain(edge, edges) {
     const seen = new Set();
     const stack = edges.filter((f) => f.from === edge.from).map((f) => ({ node: f.to, strict: f.type === 'pre', len: 1 }));
@@ -112,9 +148,12 @@
   }
   const isExtra = (t) => isRegular(t) && t.year > 4;
 
-  function stateFor(studentId) {
+  // One plan per browser. The key keeps plans saved before sign-in was removed.
+  const PLAN_KEY = 'dp.plan.me';
+  function savedState() {
     try {
-      const saved = JSON.parse(localStorage.getItem(`dp.plan.${studentId}`) || 'null');
+      const saved = JSON.parse(localStorage.getItem(PLAN_KEY) || 'null');
+      applyCourses(saved ? { custom: saved.custom || {}, edits: saved.edits || {}, removed: saved.removed || [] } : {});
       if (validState(saved)) {
         return {
           terms: saved.terms, plan: saved.plan, done: new Set(saved.done || []),
@@ -123,11 +162,8 @@
         };
       }
     } catch (_) { /* storage unavailable */ }
-    const plan = clone(window.SUGGESTED_PLAN);
-    const demo = window.DEMO_STUDENTS.find((d) => d.id === studentId);
-    for (const [id, sem] of demo ? demo.moves : []) moveCourse(plan, id, sem, plan[sem].length);
-    const done = new Set(plan.slice(0, demo ? demo.doneTerms || 0 : 0).flat());
-    return { terms: defaultTerms(), plan, done, ...emptyTranscript() };
+    applyCourses({});
+    return { terms: defaultTerms(), plan: clone(window.SUGGESTED_PLAN), done: new Set(), ...emptyTranscript() };
   }
   const emptyTranscript = () => ({ credit: new Set(), taken: {}, prior: [], fromTranscript: new Set(), transcript: null });
   function validState(st) {
@@ -135,13 +171,13 @@
     const ids = st.plan.flat();
     // Every required course must be placed once; the optional CHE 102 may be left out.
     return ids.every((id) => C[id]) && new Set(ids).size === ids.length &&
-      Object.keys(C).every((id) => C[id].optional || ids.includes(id));
+      Object.keys(C).every((id) => C[id].optional || C[id].custom || ids.includes(id));
   }
   function save() {
     try {
-      localStorage.setItem(`dp.plan.${S.studentId}`, JSON.stringify({
+      localStorage.setItem(PLAN_KEY, JSON.stringify({
         terms: S.terms, plan: S.plan, done: [...S.done], credit: [...S.credit], taken: S.taken, prior: S.prior,
-        fromTranscript: [...S.fromTranscript], transcript: S.transcript,
+        fromTranscript: [...S.fromTranscript], transcript: S.transcript, custom: S.custom, edits: S.edits, removed: S.removed,
       }));
     } catch (_) { /* ignore */ }
   }
@@ -172,38 +208,13 @@
   const colEl = [];        // column elements
   const pathEl = {};       // edge id -> path
 
-  // ---------------------------------------------------------------- login
-  document.querySelectorAll('.role').forEach((b) => b.addEventListener('click', () => signIn(b.dataset.role)));
-  $('signOut').addEventListener('click', () => {
-    try { sessionStorage.removeItem('dp.role'); } catch (_) { /* ignore */ }
-    closeDrawer(); $('issues').hidden = true;
-    $('app').hidden = true; $('login').hidden = false;
-  });
-
-  function signIn(role) {
-    S.role = role;
-    try { sessionStorage.setItem('dp.role', role); } catch (_) { /* ignore */ }
-    $('login').hidden = true; $('app').hidden = false;
-    $('rolePill').textContent = role === 'advisor' ? 'Advisor' : 'Student';
-    $('studentPicker').hidden = role !== 'advisor';
-    if (role === 'advisor') {
-      const sel = $('studentSelect');
-      sel.innerHTML = window.DEMO_STUDENTS.map((d) => `<option value="${d.id}">${d.name} (${d.year})</option>`).join('');
-      loadStudent(sel.value);
-    } else {
-      loadStudent('me');
-    }
-  }
-  $('studentSelect').addEventListener('change', (e) => loadStudent(e.target.value));
-
-  function loadStudent(id) {
-    S.studentId = id;
-    const st = stateFor(id);
+  // ---------------------------------------------------------------- load
+  function loadPlan() {
+    const st = savedState();
     S.terms = st.terms; S.plan = st.plan; S.done = st.done;
     S.credit = st.credit; S.taken = st.taken; S.prior = st.prior; S.fromTranscript = st.fromTranscript; S.transcript = st.transcript;
     renderDock();
-    S.selected = null; closeDrawer(); $('issues').hidden = true;
-    $('who').innerHTML = S.role === 'advisor' ? '' : 'Your plan: <strong>B.S. Chemical Engineering</strong>';
+    S.selected = null; S.pinned = null; closeDrawer(); $('issues').hidden = true;
     build(true);
     scroller.jump(0);
     requestAnimationFrame(() => { updateSemnav(); loop.kick(); });
@@ -251,6 +262,14 @@
     drop.querySelector('.td-item').classList.add('sel');
   }
 
+  // Course counts in the type dropdown; added courses change them.
+  function updateLegendCounts() {
+    document.querySelectorAll('#tdMenu .td-item').forEach((b) => {
+      const k = b.dataset.cat;
+      b.querySelector('b').textContent = Object.values(C).filter((c) => !k || c.cat === k).length;
+    });
+  }
+
   function buildSemnav() {
     const tr = $('semnav').querySelector('.semnav-track');
     tr.querySelectorAll('button').forEach((b) => b.remove());
@@ -294,6 +313,13 @@
         add.addEventListener('click', () => addSummer(i));
         col.appendChild(add);
       }
+      if (t.kind !== 'credit') {
+        const addC = document.createElement('button');
+        addC.className = 'add-course';
+        addC.innerHTML = `${ICON.plus}Add course`;
+        addC.addEventListener('click', () => showCourseForm(i));
+        col.querySelector('.col-body').appendChild(addC);
+      }
       const rm = col.querySelector('.term-remove');
       if (rm) rm.addEventListener('click', () => removeTerm(i));
       columnsEl.appendChild(col);
@@ -329,7 +355,7 @@
       el.dataset.cat = c.cat;
       el.innerHTML =
         `<div class="row"><span class="code">${c.code}${c.optional ? '<span class="opt">Optional</span>' : ''}</span>` +
-        `<span class="right"><span class="hrs">${c.hrs} hr</span><button class="check" aria-label="Mark ${c.code} complete">${ICON.tick}</button></span></div>` +
+        `<span class="right"><button class="pin" aria-label="Pin ${c.code} chain">${ICON.pin}</button><span class="hrs">${c.hrs} hr</span><button class="check" aria-label="Mark ${c.code} complete">${ICON.tick}</button></span></div>` +
         `<div class="title">${S.taken[id] ? `Taken as ${S.taken[id]}` : c.title}</div><span class="flag">${ICON.alert}</span>`;
       if (intro) {
         el.classList.add('intro');
@@ -340,6 +366,9 @@
       const chk = el.querySelector('.check');
       chk.addEventListener('pointerdown', (ev) => ev.stopPropagation());
       chk.addEventListener('click', (ev) => { ev.stopPropagation(); toggleDone(id); });
+      const pin = el.querySelector('.pin');
+      pin.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+      pin.addEventListener('click', (ev) => { ev.stopPropagation(); togglePin(id); });
       el.addEventListener('mouseenter', () => { if (!S.drag) { S.hover = id; paint(); } });
       el.addEventListener('mouseleave', () => { if (S.hover === id) { S.hover = null; paint(); } });
       cardEl[id] = el;
@@ -374,14 +403,17 @@
   function placeCards() {
     S.plan.forEach((sem, si) => {
       const body = colEl[si].querySelector('.col-body');
-      sem.forEach((id) => body.appendChild(cardEl[id]));
+      const addBtn = body.querySelector('.add-course');
+      sem.forEach((id) => body.insertBefore(cardEl[id], addBtn));
     });
   }
 
   // Classes and counters that depend on the plan's validity or on hover.
   function paint() {
     const { broken, badCourses, late } = analyze(S.plan);
-    const lit = S.hover || S.selected ? chainOf(S.hover || S.selected) : null;
+    // A pinned chain stays lit while swiping, ahead of whatever the pointer passes over.
+    const focusId = S.pinned || S.hover || S.selected;
+    const lit = focusId ? chainOf(focusId) : null;
 
     const cat = !lit && S.catFocus;
     for (const [id, el] of Object.entries(cardEl)) {
@@ -390,6 +422,8 @@
       el.classList.toggle('dim', lit ? !lit.cards.has(id) : !!cat && C[id].cat !== cat);
       el.classList.toggle('lit', !!lit && lit.cards.has(id));
       el.classList.toggle('selected', S.selected === id);
+      el.classList.toggle('pinned', S.pinned === id);
+      el.querySelector('.pin').setAttribute('aria-pressed', S.pinned === id);
       el.classList.toggle('done', S.done.has(id));
       el.querySelector('.check').setAttribute('aria-pressed', S.done.has(id));
     }
@@ -415,6 +449,8 @@
       if (rm) { rm.disabled = sem.length > 0; rm.title = sem.length ? 'Move its courses out first' : 'Remove term'; }
       el.title = h > 18 ? 'Heavier than the suggested load' : '';
     });
+    $('pinChip').hidden = !S.pinned;
+    if (S.pinned) $('pinChipCode').textContent = C[S.pinned].code;
     const navBtns = $('semnav').querySelectorAll('button');
     navBtns.forEach((b, i) => b.classList.toggle('has-bad', S.plan[i].some((id) => badCourses.has(id))));
 
@@ -434,6 +470,13 @@
     if (!$('issues').hidden) renderIssues();
     renderAudit();
   }
+
+  function togglePin(id) {
+    S.pinned = S.pinned === id ? null : id;
+    paint();
+  }
+  $('pinChipGo').addEventListener('click', () => { if (S.pinned) focusCourse(S.pinned); });
+  $('pinChipClose').addEventListener('click', () => { if (S.pinned) togglePin(S.pinned); });
 
   // Everything upstream and downstream of a course.
   function chainOf(id) {
@@ -656,11 +699,11 @@
   })();
 
   window.addEventListener('keydown', (ev) => {
-    if ($('app').hidden || ev.target.closest('select, input')) return;
+    if (ev.target.closest('select, input, textarea')) return;
     const colStep = colEl[1] ? localPos(colEl[1]).x - localPos(colEl[0]).x : 264;
     if (ev.key === 'ArrowRight') { scroller.target = scroller.target + colStep; ev.preventDefault(); }
     if (ev.key === 'ArrowLeft') { scroller.target = scroller.target - colStep; ev.preventDefault(); }
-    if (ev.key === 'Escape') { closeDrawer(); $('issues').hidden = true; S.selected = null; paint(); }
+    if (ev.key === 'Escape') { closeDrawer(); $('issues').hidden = true; S.selected = null; S.pinned = null; paint(); }
   });
 
   // ---------------------------------------------------------------- animation loop
@@ -743,7 +786,7 @@
     anims.delete(d.id); el.style.transform = '';
 
     const ghost = el.cloneNode(true);
-    ghost.classList.remove('intro', 'dim', 'lit', 'placeholder', 'selected', 'pulse');
+    ghost.classList.remove('intro', 'dim', 'lit', 'placeholder', 'selected', 'pinned', 'pulse');
     ghost.classList.add('ghost');
     ghost.style.animationDelay = '';
     track.appendChild(ghost);
@@ -882,15 +925,21 @@
     if (!id) return;
     const c = C[id];
     const sem = semOf(S.plan, id);
-    const pre = (c.pre || []).map((p) => reqItem(p, !C[p] || semOf(S.plan, p) < sem));
-    const co = (c.co || []).map((p) => reqItem(p, !C[p] || semOf(S.plan, p) <= sem, 'co-req'));
+    // Requirements come from the edges (added and edited courses change them), plus credit from
+    // outside the plan such as CH 301. Deleted catalog courses are dropped.
+    const outside = (list) => (list || []).filter((p) => !C[p] && !BASE[p]);
+    const into = (type) => ALL_EDGES.filter((e) => e.to === id && e.type === type).map((e) => e.from);
+    const preIds = [...into('pre'), ...outside(c.pre)];
+    const coIds = [...into('co'), ...outside(c.co)];
+    const pre = preIds.map((p) => reqItem(p, !C[p] || semOf(S.plan, p) < sem));
+    const co = coIds.map((p) => reqItem(p, !C[p] || semOf(S.plan, p) <= sem, 'co-req'));
     const unlocks = ALL_EDGES.filter((e) => e.from === id).map((e) => {
       const ok = !edgeBroken(S.plan, e);
       return `<li class="${ok ? 'ok' : 'bad'}">${ok ? ICON.check : ICON.x}<button data-go="${e.to}">${C[e.to].code}</button>` +
         `${e.type === 'co' ? '<span class="tag">co-req</span>' : ''}<span class="sem">${nameAt(semOf(S.plan, e.to))}</span></li>`;
     });
-    const badPre = (c.pre || []).filter((p) => C[p] && semOf(S.plan, p) >= sem);
-    const badCo = (c.co || []).filter((p) => C[p] && semOf(S.plan, p) > sem);
+    const badPre = preIds.filter((p) => C[p] && semOf(S.plan, p) >= sem);
+    const badCo = coIds.filter((p) => C[p] && semOf(S.plan, p) > sem);
     let alerts = '';
     if (badPre.length || badCo.length) {
       const parts = [];
@@ -898,28 +947,33 @@
       if (badCo.length) parts.push(`${badCo.map((p) => C[p].code).join(', ')} must be taken in the same semester or earlier`);
       alerts += `<div class="d-alert bad"><strong>Prerequisite chain broken.</strong> ${parts.join('; ')}.</div>`;
     }
-    if (sem >= lateFrom(c.latest)) {
+    if (c.latest != null && sem >= lateFrom(c.latest)) {
       alerts += `<div class="d-alert warn"><strong>Past the on-time limit.</strong> To graduate in four years, take ${c.code} no later than ${latestName(c.latest)}.</div>`;
     }
-    const openPre = [...(c.pre || []), ...(c.co || [])].filter((p) => C[p] && !S.done.has(p));
+    const openPre = [...preIds, ...coIds].filter((p) => C[p] && !S.done.has(p));
     if (S.done.has(id) && openPre.length) {
       alerts += `<div class="d-alert warn">Marked complete, but ${openPre.map((p) => C[p].code).join(', ')} ${openPre.length === 1 ? 'is' : 'are'} not checked off yet.</div>`;
     }
     if (S.credit.has(id)) alerts += `<div class="d-alert credit"><strong>AP credit.</strong> Your transcript shows ${S.taken[id] || c.code} with a grade of CR (credit by exam), so this requirement is complete.</div>`;
     if (S.taken[id] && !S.credit.has(id)) alerts += `<div class="d-alert note">Filled by <strong>${S.taken[id]}</strong> from your transcript.</div>`;
     if (c.note) alerts += `<div class="d-alert note">${c.note}</div>`;
+    if (c.custom) alerts += `<div class="d-alert note">You added this course.</div>`;
+    else if (S.edits[id]) alerts += `<div class="d-alert note">You edited this course. Reset to suggested restores the original.</div>`;
     if (c.optional) alerts += `<div class="d-alert note">Optional course. Students who skip it take 16 hours in their first fall instead.</div>`;
 
     $('drawerBody').innerHTML =
       `<div class="d-cat" style="color:var(--${c.cat})"><i style="background:var(--${c.cat})"></i>${CATS[c.cat].label}</div>` +
       `<div class="d-code">${c.code}</div><p class="d-title">${c.title}</p>` +
-      `<button class="d-done${S.done.has(id) ? ' on' : ''}" id="dDone">${S.done.has(id) ? `${ICON.ok}Completed` : `${ICON.check}Mark as completed`}</button>` +
-      `<div class="d-meta"><span>${c.hrs} credit hours</span><span>Planned: ${nameAt(sem)}</span><span>Latest on track: ${latestName(c.latest)}</span></div>` +
+      `<div class="d-actions"><button class="d-done${S.done.has(id) ? ' on' : ''}" id="dDone">${S.done.has(id) ? `${ICON.ok}Completed` : `${ICON.check}Mark as completed`}</button>` +
+      `<button class="d-done d-edit" id="dEdit">${ICON.edit}Edit</button><button class="d-done d-delete" id="dDelete">${ICON.trash}Delete</button></div>` +
+      `<div class="d-meta"><span>${c.hrs} credit hours</span><span>Planned: ${nameAt(sem)}</span>${c.latest != null ? `<span>Latest on track: ${latestName(c.latest)}</span>` : ''}</div>` +
       alerts +
       `<h3>Requires</h3>${pre.length || co.length ? `<ul class="req">${pre.join('')}${co.join('')}</ul>` : '<p class="empty">No prerequisites.</p>'}` +
       `<h3>Leads to</h3>${unlocks.length ? `<ul class="req">${unlocks.join('')}</ul>` : '<p class="empty">Not a prerequisite for other required courses.</p>'}`;
     $('drawerBody').querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => focusCourse(b.dataset.go, true)));
     $('dDone').addEventListener('click', () => toggleDone(id));
+    $('dEdit').addEventListener('click', () => showCourseForm(semOf(S.plan, id), id));
+    $('dDelete').addEventListener('click', () => confirmDelete(id));
   }
 
   function focusCourse(id, open) {
@@ -961,18 +1015,45 @@
   }
 
   // ---------------------------------------------------------------- reset
-  $('resetBtn').addEventListener('click', () => {
-    revertToSuggested();
-  });
-  function revertToSuggested() {
+  $('resetBtn').addEventListener('click', confirmReset);
+
+  // Spell out what a reset undoes; completions and added courses are the student's choice.
+  function confirmReset() {
+    const marked = [...S.done].filter((id) => !S.fromTranscript.has(id)).length;
+    const added = Object.keys(S.custom).length;
+    const keep = (id, text) => `<label class="rs-keep"><input type="checkbox" id="${id}" checked><span>${text}</span></label>`;
+    openModal(`<h2 id="modalTitle">Reset to the suggested plan?</h2>` +
+      `<p class="m-sub">Every course goes back to its suggested semester and extra terms are removed. ` +
+      `Edited and deleted courses are restored, and anything from an imported transcript is cleared.</p>` +
+      (marked || added ? `<div class="rs-keeps">` +
+        (marked ? keep('rsKeepDone', `Keep my ${marked} completed course${marked === 1 ? '' : 's'} checked off`) : '') +
+        (added ? keep('rsKeepAdded', `Keep the ${added} course${added === 1 ? '' : 's'} I added`) : '') + `</div>` : '') +
+      `<div class="m-actions"><button class="btn ghost" id="rsCancel">Cancel</button><button class="btn primary" id="rsOk">Reset plan</button></div>`);
+    $('rsCancel').addEventListener('click', closeModal);
+    $('rsOk').addEventListener('click', () => {
+      const opts = { keepDone: !$('rsKeepDone') || $('rsKeepDone').checked, keepAdded: !$('rsKeepAdded') || $('rsKeepAdded').checked };
+      closeModal();
+      revertToSuggested(opts);
+    });
+  }
+
+  function revertToSuggested({ keepDone = true, keepAdded = true } = {}) {
     const before = snapshot();
+    const oldPlan = S.plan;
+    // Brings back deleted and edited catalog courses.
+    applyCourses({ custom: keepAdded ? S.custom : {} });
     S.terms = defaultTerms();
     S.plan = clone(window.SUGGESTED_PLAN);
-    // Undo everything the transcript set; check-offs made by hand stay.
-    for (const id of S.fromTranscript) S.done.delete(id);
+    keepCustom(oldPlan);
+    // Undo everything the transcript set; check-offs made by hand stay if asked.
+    if (keepDone) { for (const id of S.fromTranscript) S.done.delete(id); } else S.done = new Set();
+    for (const id of [...S.done]) if (!C[id]) S.done.delete(id);
     Object.assign(S, emptyTranscript());
+    if (S.pinned && !C[S.pinned]) S.pinned = null;
+    if (S.selected && !C[S.selected]) closeDrawer();
     rebuild(before, 650);
     renderDock();
+    scroller.target = 0;
   }
 
   // ---------------------------------------------------------------- adding and removing terms
@@ -1018,6 +1099,146 @@
     rebuild(before);
   }
 
+  // ---------------------------------------------------------------- adding your own course
+  // pre: taken in an earlier term. co: same term or earlier. unlocks: catalog courses that need it.
+  // UT course numbers start with the credit hours: CHE 379 is 3 hours, M 408D is 4.
+  const parseCode = (text) => {
+    const m = String(text).toUpperCase().replace(/\s+/g, ' ').trim().match(/^([A-Z][A-Z ]{0,5}?) ?(\d)(\d\d[A-Z]?)$/);
+    return m ? { code: `${m[1].trim()} ${m[2]}${m[3]}`, hrs: Math.max(1, +m[2]) } : null;
+  };
+  const clean = (t) => String(t).replace(/[<>"&]/g, '').trim();
+
+  // Add a course to a term, or edit one already in the plan (editId).
+  function showCourseForm(sem, editId) {
+    const editing = editId ? C[editId] : null;
+    // Current links of the course being edited, as the form's starting selections.
+    const linked = (type, dir) => !editId ? [] : ALL_EDGES
+      .filter((e) => e.type === type && (dir === 'in' ? e.to : e.from) === editId).map((e) => (dir === 'in' ? e.from : e.to));
+    const sel = { acPre: linked('pre', 'in'), acCo: linked('co', 'in'), acPost: linked('pre', 'out') };
+    // Checklist of every other course in the plan, grouped by term.
+    const picker = (name) => S.plan.map((ids, i) => {
+      ids = ids.filter((id) => id !== editId);
+      return ids.length ? `<div class="ac-term"><small>${nameAt(i)}</small><div class="ac-chips">` +
+        ids.map((id) => `<label class="ac-chip" style="--c:var(--${C[id].cat})"><input type="checkbox" name="${name}" value="${id}"${sel[name].includes(id) ? ' checked' : ''}><span>${C[id].code}</span></label>`).join('') +
+        `</div></div>` : '';
+    }).join('');
+    const yesNo = (name, q, on) => `<div class="ac-q"><span>${q}</span><div class="ac-yn">` +
+      `<label><input type="radio" name="${name}" value="no"${on ? '' : ' checked'}><span>No</span></label>` +
+      `<label><input type="radio" name="${name}" value="yes"${on ? ' checked' : ''}><span>Yes</span></label></div></div>`;
+    const hoursText = (code, hrs) => `${code}: ${hrs} credit hour${hrs === 1 ? '' : 's'}`;
+    const defaultHint = editing ? hoursText(editing.code, editing.hrs) : 'Credit hours come from the first digit of the course number.';
+    openModal(
+      `<h2 id="modalTitle">${editing ? `Edit ${editing.code}` : `Add a course to ${nameAt(sem)}`}</h2>` +
+      `<form class="ac-form" id="acForm" novalidate>` +
+        `<label class="ac-field"><span>Degree requirement</span><select id="acCat">` +
+          Object.entries(CATS).map(([k, v]) => `<option value="${k}"${editing && editing.cat === k ? ' selected' : ''}>${v.label}</option>`).join('') + `</select></label>` +
+        `<div class="ac-row">` +
+          `<label class="ac-field"><span>Course number</span><input id="acCode" placeholder="CHE 379" autocomplete="off" value="${editing ? esc(editing.code) : ''}"></label>` +
+          `<label class="ac-field grow"><span>Course name</span><input id="acTitle" placeholder="Petroleum Refining" autocomplete="off" value="${editing ? esc(editing.title) : ''}"></label>` +
+        `</div>` +
+        `<p class="ac-hint" id="acHint">${defaultHint}</p>` +
+        yesNo('acHasPre', 'Does it have prerequisites?', sel.acPre.length) +
+        `<div class="ac-pick" id="acPrePick" hidden><p>Select the classes you need to take first.</p>${picker('acPre')}</div>` +
+        yesNo('acHasCo', 'Does it have co-requisites?', sel.acCo.length) +
+        `<div class="ac-pick" id="acCoPick" hidden><p>Select the classes to take in the same semester or earlier.</p>${picker('acCo')}</div>` +
+        yesNo('acHasPost', 'Is it a prerequisite for other classes?', sel.acPost.length) +
+        `<div class="ac-pick" id="acPostPick" hidden><p>Select the classes that need this course.</p>${picker('acPost')}</div>` +
+        `<p class="ac-error" id="acError" hidden></p>` +
+        `<div class="m-actions"><button type="button" class="btn ghost" id="acCancel">Cancel</button><button type="submit" class="btn primary">${editing ? 'Save changes' : 'Add course'}</button></div>` +
+      `</form>`);
+    const form = $('acForm');
+    const norm = (t) => clean(t).toUpperCase().replace(/\s+/g, ' ');
+    // An edited course keeps its code and hours unless the number is changed.
+    const unchanged = () => editing && norm($('acCode').value) === norm(editing.code);
+    const sync = () => {
+      $('acPrePick').hidden = form.acHasPre.value !== 'yes';
+      $('acCoPick').hidden = form.acHasCo.value !== 'yes';
+      $('acPostPick').hidden = form.acHasPost.value !== 'yes';
+      const pc = parseCode($('acCode').value);
+      $('acHint').textContent = unchanged() ? defaultHint : pc ? hoursText(pc.code, pc.hrs) : 'Credit hours come from the first digit of the course number.';
+    };
+    sync();
+    form.addEventListener('change', sync);
+    $('acCode').addEventListener('input', sync);
+    $('acCancel').addEventListener('click', closeModal);
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const err = (msg) => { $('acError').textContent = msg; $('acError').hidden = false; };
+      const pc = unchanged() ? { code: editing.code, hrs: editing.hrs } : parseCode(clean($('acCode').value));
+      if (!pc) return err('Enter a course number like CHE 379 or M 427L.');
+      const id = editId || `X_${pc.code.replace(/ /g, '')}`;
+      if ((!editId && C[id]) || Object.entries(C).some(([k, c]) => k !== editId && c.code === pc.code)) return err(`${pc.code} is already in your plan.`);
+      const checked = (name) => [...form.querySelectorAll(`input[name="${name}"]:checked`)].map((x) => x.value);
+      const pre = form.acHasPre.value === 'yes' ? checked('acPre') : [];
+      const co = form.acHasCo.value === 'yes' ? checked('acCo') : [];
+      const unlocks = form.acHasPost.value === 'yes' ? checked('acPost') : [];
+      if (form.acHasPre.value === 'yes' && !pre.length) return err('Select at least one prerequisite, or answer No.');
+      if (form.acHasCo.value === 'yes' && !co.length) return err('Select at least one co-requisite, or answer No.');
+      if (form.acHasPost.value === 'yes' && !unlocks.length) return err('Select at least one class that needs it, or answer No.');
+      const twice = [...pre, ...co, ...unlocks].find((x, i, all) => all.indexOf(x) !== i);
+      if (twice) return err(`${C[twice].code} is selected in more than one list. Pick it in only one.`);
+      // Keep credit from outside the plan (like CH 301) that the checklist cannot show.
+      const keepOutside = (list) => (list || []).filter((p) => !C[p]);
+      saveCourse(sem, id, {
+        code: pc.code, hrs: pc.hrs, cat: $('acCat').value,
+        title: clean($('acTitle').value) || (editing ? editing.title : 'Added course'),
+        pre: [...pre, ...keepOutside(editing && editing.pre)], co: [...co, ...keepOutside(editing && editing.co)], unlocks,
+      });
+      closeModal();
+    });
+    setTimeout(() => $('acCode').focus(), 50);
+  }
+
+  // Store an added or edited course. Added courses go in S.custom, catalog changes in S.edits.
+  function saveCourse(sem, id, fields) {
+    const before = snapshot();
+    const isNew = !C[id];
+    const custom = { ...S.custom }, edits = { ...S.edits };
+    const put = (k, f) => { if ((isNew && k === id) || custom[k]) custom[k] = { ...custom[k], ...f }; else edits[k] = { ...edits[k], ...f }; };
+    put(id, fields);
+    // Courses with their own "leads to" list must agree with this course's prerequisites.
+    for (const [k, c] of Object.entries(C)) {
+      if (k === id || !c.unlocks) continue;
+      const want = fields.pre.includes(k), has = c.unlocks.includes(id);
+      if (want !== has) put(k, { unlocks: want ? [...c.unlocks, id] : c.unlocks.filter((t) => t !== id) });
+    }
+    applyCourses({ custom, edits, removed: S.removed });
+    if (isNew) S.plan[sem].push(id);
+    rebuild(before);
+    if (isNew) focusCourse(id);
+  }
+
+  function confirmDelete(id) {
+    const c = C[id];
+    openModal(`<h2 id="modalTitle">Delete ${c.code}?</h2>` +
+      `<p class="m-sub">${c.custom
+        ? 'This removes the course you added from your plan.'
+        : `${c.code} is part of the suggested degree plan. Deleting it also removes its prerequisite links. <b>Reset to suggested</b> brings it back.`}</p>` +
+      `<div class="m-actions"><button class="btn ghost" id="cdCancel">Cancel</button><button class="btn danger" id="cdOk">${ICON.trash}Delete course</button></div>`);
+    $('cdCancel').addEventListener('click', closeModal);
+    $('cdOk').addEventListener('click', () => { closeModal(); deleteCourse(id); });
+  }
+
+  function deleteCourse(id) {
+    const before = snapshot();
+    const custom = { ...S.custom }, edits = { ...S.edits };
+    let removed = S.removed;
+    if (custom[id]) delete custom[id];
+    else { delete edits[id]; removed = [...removed, id]; }
+    // Drop it from any requirement lists the student set.
+    for (const o of [custom, edits]) {
+      for (const k of Object.keys(o)) {
+        for (const f of ['pre', 'co', 'unlocks']) if (o[k][f] && o[k][f].includes(id)) o[k] = { ...o[k], [f]: o[k][f].filter((x) => x !== id) };
+      }
+    }
+    for (const sem of S.plan) { const i = sem.indexOf(id); if (i >= 0) sem.splice(i, 1); }
+    S.done.delete(id); S.credit.delete(id); S.fromTranscript.delete(id); delete S.taken[id];
+    if (S.pinned === id) S.pinned = null;
+    closeDrawer();
+    applyCourses({ custom, edits, removed });
+    rebuild(before);
+  }
+
   // ---------------------------------------------------------------- completion + degree audit
   function toggleDone(id) {
     if (S.done.has(id)) S.done.delete(id); else S.done.add(id);
@@ -1047,10 +1268,9 @@
     setTimeout(() => { if (tweens[elId] === to) el.textContent = fmt(to); }, dur + 50);
   }
 
-  const REQUIRED = Object.keys(C).filter((id) => !C[id].optional);
-  const REQ_HOURS = REQUIRED.reduce((n, id) => n + C[id].hrs, 0);
-
   function renderAudit() {
+    const REQUIRED = Object.keys(C).filter((id) => !C[id].optional);
+    const REQ_HOURS = REQUIRED.reduce((n, id) => n + C[id].hrs, 0);
     const sumHrs = (ids) => ids.reduce((n, id) => n + C[id].hrs, 0);
     const doneReq = REQUIRED.filter((id) => S.done.has(id));
     const leftReq = REQUIRED.filter((id) => !S.done.has(id));
@@ -1102,7 +1322,8 @@
     requestAnimationFrame(() => {
       $('auditRows').querySelectorAll('.arow').forEach((row) => {
         const k = row.dataset.cat;
-        const ids = REQUIRED.filter((id) => C[id].cat === k);
+        // A course removed since this frame was queued is no longer in C.
+        const ids = REQUIRED.filter((id) => C[id] && C[id].cat === k);
         const tot = sumHrs(ids), got = sumHrs(ids.filter((id) => S.done.has(id)));
         const w = tot ? (got / tot) * 100 : 0;
         row.querySelector('i').style.width = `${w}%`;
@@ -1135,7 +1356,7 @@
         `<button class="btn" id="dockUpload">${ICON.upload}Upload another</button>` +
         `<button class="btn ghost" id="dockRevert">Revert to suggested</button></div>`;
       $('dockDetails').addEventListener('click', showReport);
-      $('dockRevert').addEventListener('click', () => { revertToSuggested(); });
+      $('dockRevert').addEventListener('click', confirmReset);
     }
     $('dockUpload').addEventListener('click', () => $('transcriptFile').click());
     if ($('dockPaste')) $('dockPaste').addEventListener('click', showPaste);
@@ -1174,10 +1395,13 @@
         `If this is a scanned PDF, try copying the text from your transcript and using Paste text.</p>`);
       return;
     }
+    applyCourses({ custom: S.custom }); // the transcript is matched against the full catalog
     const r = window.Transcript.build(courses);
     const before = snapshot();
     for (const id of S.fromTranscript) S.done.delete(id);
+    const oldPlan = S.plan;
     S.terms = r.terms; S.plan = r.plan;
+    keepCustom(oldPlan);
     for (const id of r.done) S.done.add(id);
     S.fromTranscript = new Set(r.done);
     S.credit = r.credit; S.taken = r.taken; S.prior = r.prior;
@@ -1240,7 +1464,7 @@
         `</table></section>`).join('') +
       `<div class="m-actions"><button class="btn ghost" id="mRevert">Revert to suggested plan</button><button class="btn primary" id="mDone">View my flowchart</button></div>`);
     $('mDone').addEventListener('click', closeModal);
-    $('mRevert').addEventListener('click', () => { closeModal(); revertToSuggested(); });
+    $('mRevert').addEventListener('click', confirmReset);
   }
 
   function openModal(html) {
@@ -1303,9 +1527,7 @@
 
   // ---------------------------------------------------------------- boot
   buildLegend();
-  let savedRole = null;
-  try { savedRole = sessionStorage.getItem('dp.role'); } catch (_) { /* ignore */ }
-  if (savedRole === 'student' || savedRole === 'advisor') signIn(savedRole);
+  loadPlan();
 
   // Debug handle for testing.
   window.__dp = { importText, revertToSuggested, S, analyze, EDGES, ALL_EDGES, edgeBroken, rectOf, scroller, toggleDone, addSummer, addRegular, removeTerm, lateFrom };

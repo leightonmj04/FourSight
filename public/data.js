@@ -93,13 +93,3 @@ window.SUGGESTED_PLAN = [
   ['CHE350', 'CHE264', 'CHE338', 'GOV312', 'TECH2', 'TECH3'],
   ['CHE360', 'CHE473K', 'USHIST', 'TECH4', 'CHEMEL'],
 ];
-
-// Demo students for the advisor view: moves applied to the suggested plan, and how many of the
-// first terms are already completed.
-window.DEMO_STUDENTS = [
-  { id: 'maya',   name: 'Maya Thompson', year: 'Second year', doneTerms: 2, moves: [] },
-  { id: 'jordan', name: 'Jordan Lee',    year: 'First year', doneTerms: 0,
-    moves: [['CHE319', 2], ['CHE372', 4], ['M427L', 2], ['VAPA', 3]] },
-  { id: 'priya',  name: 'Priya Shah',    year: 'Third year', doneTerms: 4,
-    moves: [['GOV310L', 2], ['E316', 1], ['AMHIST', 1], ['TECH1', 3], ['CHEMEL', 5]] },
-];

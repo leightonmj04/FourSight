@@ -11,31 +11,7 @@
 </head>
 <body>
 
-  <!-- Login: prototype asks only for a role. The final product will ask for email and UT EID. -->
-  <section id="login" class="login">
-    <div class="login-card">
-      <div class="wordmark big" aria-label="FourSight"><span class="wm-four">Four</span><span class="wm-sight">Sight</span></div>
-      <div class="wm-tag">McKetta Department of Chemical Engineering, UT Austin</div>
-      <h1>See all four years at once.</h1>
-      <p class="login-sub">Plan your semesters, see every prerequisite chain, and catch conflicts before registration.</p>
-      <div class="role-label">I am signing in as</div>
-      <div class="roles">
-        <button class="role" data-role="student">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="M6 10.5V16c0 1.5 2.7 3 6 3s6-1.5 6-3v-5.5"/></svg>
-          <span class="role-name">Student</span>
-          <span class="role-desc">Build and adjust your own plan</span>
-        </button>
-        <button class="role" data-role="advisor">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18.5 14.8c1.7.8 2.7 2.5 3 5.2"/></svg>
-          <span class="role-name">Advisor</span>
-          <span class="role-desc">Review and edit student plans</span>
-        </button>
-      </div>
-      <p class="login-note">Prototype sign-in. The full version will ask for your UT email and UT EID.</p>
-    </div>
-  </section>
-
-  <section id="app" class="app" hidden>
+  <section id="app" class="app">
     <header class="topbar">
       <div class="brand">
         <div class="wordmark" aria-label="FourSight"><span class="wm-four">Four</span><span class="wm-sight">Sight</span></div>
@@ -45,19 +21,13 @@
         </div>
       </div>
       <div class="topbar-mid">
-        <label class="student-picker" id="studentPicker" hidden>
-          <span>Student</span>
-          <select id="studentSelect"></select>
-        </label>
-        <div class="who" id="who"></div>
+        <div class="who">Your plan: <strong>B.S. Chemical Engineering</strong></div>
       </div>
       <div class="topbar-right">
-        <span class="role-pill" id="rolePill"></span>
         <button class="btn panel-toggle" id="panelToggle" aria-expanded="true" aria-controls="panels">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 14 5-5 5 5"/></svg>
           <span id="panelToggleText">Minimize</span>
         </button>
-        <button class="btn ghost" id="signOut">Sign out</button>
       </div>
     </header>
 
@@ -113,6 +83,13 @@
     </div>
     </div>
 
+    <div class="pin-anchor">
+      <div class="pin-chip" id="pinChip" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 3.5 3.5h-11L10 10 9 4Z"/><path d="M12 13.5V20"/></svg>
+        <button class="pin-chip-go" id="pinChipGo" title="Scroll to this course">Pinned: <strong id="pinChipCode"></strong></button>
+        <button class="pin-chip-close" id="pinChipClose" aria-label="Unpin"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+    </div>
     <main class="viewport" id="viewport">
       <div class="track" id="track">
         <div class="bands" id="bands"></div>
@@ -131,7 +108,7 @@
 
     <footer class="dock" id="dock">
       <div class="dock-main" id="dockMain"></div>
-      <p class="hint">Drag a course to another semester. Hover to trace its chain, click for details.</p>
+      <p class="hint">Drag a course to another semester. Hover to trace its chain, or pin it to keep the chain lit. Click for details.</p>
       <input type="file" id="transcriptFile" accept=".pdf,.txt,.csv,application/pdf,text/plain,text/csv" hidden>
     </footer>
 
