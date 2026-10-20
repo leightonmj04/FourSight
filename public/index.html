@@ -16,12 +16,15 @@
       <div class="brand">
         <div class="wordmark" aria-label="FourSight"><span class="wm-four">Four</span><span class="wm-sight">Sight</span></div>
         <div class="brand-sub">
-          <span>McKetta Chemical Engineering</span>
-          <span>2026-2028 Catalog: 129 hours</span>
+          <span id="brandDept">Cockrell School of Engineering</span>
+          <span><span id="brandMeta"></span><button class="link-btn" id="programInfo">Program notes</button></span>
         </div>
       </div>
       <div class="topbar-mid">
-        <div class="who">Your plan: <strong>B.S. Chemical Engineering</strong></div>
+        <label class="program-picker">
+          <span>Degree plan</span>
+          <select id="programSelect" aria-label="Degree program"></select>
+        </label>
       </div>
       <div class="topbar-right">
         <button class="btn panel-toggle" id="panelToggle" aria-expanded="true" aria-controls="panels">
@@ -63,7 +66,7 @@
           <div class="audit-title">Degree audit <span class="live"><i></i>Live</span></div>
           <div class="audit-stats">
             <div class="astat done"><small>Completed</small><strong><span id="auditDoneHrs">0</span> <em>hrs</em></strong><span id="auditDoneSub"></span></div>
-            <div class="astat"><small>Remaining</small><strong><span id="auditLeftHrs">129</span> <em>hrs</em></strong><span id="auditLeftSub"></span></div>
+            <div class="astat"><small>Remaining</small><strong><span id="auditLeftHrs">0</span> <em>hrs</em></strong><span id="auditLeftSub"></span></div>
             <div class="astat"><small>Next term</small><strong id="auditNextTerm">Fall 1</strong><span id="auditNextSub"></span></div>
           </div>
           <div class="audit-warn" id="auditWarn" hidden></div>
@@ -136,6 +139,17 @@
   </section>
 
   <script src="data.js"></script>
+  <script src="programs/ase.js"></script>
+  <script src="programs/are.js"></script>
+  <script src="programs/bme.js"></script>
+  <script src="programs/che.js"></script>
+  <script src="programs/ce.js"></script>
+  <script src="programs/coe.js"></script>
+  <script src="programs/ece.js"></script>
+  <script src="programs/eve.js"></script>
+  <script src="programs/ge.js"></script>
+  <script src="programs/me.js"></script>
+  <script src="programs/pe.js"></script>
   <script src="transcript.js"></script>
   <script src="app.js"></script>
 </body>

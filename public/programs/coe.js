@@ -1,0 +1,60 @@
+// B.S. Computational Engineering, 2026-28 catalog, 122 hours. Prerequisites from the 2025-26 COE,
+// ASE, E M and M E course listings. The eight-semester arrangement is FourSight's, built to satisfy
+// every prerequisite; the department's flowchart is in the ASE/COE Box folder.
+FS.define({
+  id: 'coe',
+  name: 'Computational Engineering',
+  degree: 'BSCompE',
+  dept: 'Aerospace Engineering and Engineering Mechanics',
+  hours: 122,
+  categories: { major: 'Computational Engineering', stem: 'Math and Science', core: 'Core Curriculum', tech: 'Technical Electives' },
+  courses: {
+    ...FS.pick('M408C', 'M408D', 'M427J', 'M427L', 'PHY303K', 'PHY105M', 'PHY303L', 'PHY105N', 'CH301',
+      'EM306', 'EM311M', 'EM319', 'ES333T', 'RHE306', 'COE301', 'COE311K', 'ME210', 'ME310T', 'ASE320', 'ASE330M'),
+    ASE375:  { ...FS.SHARED.ASE375, note: 'ASE and COE majors only.' },
+    COE322:  { code: 'COE 322',  title: 'Scientific Computation', hrs: 3, cat: 'major', pre: ['COE301'], note: 'COE majors only.' },
+    COE332:  { code: 'COE 332',  title: 'Software Engineering and Design', hrs: 3, cat: 'major', pre: ['COE322'], note: 'COE majors only.' },
+    COE352:  { code: 'COE 352',  title: 'Topics in Advanced Scientific Computation', hrs: 3, cat: 'major', pre: ['M427J', 'COE322', 'COE311K'] },
+    COE362:  { code: 'COE 362 or M 362K', title: 'Engineering Probability and Statistics or Probability I', hrs: 3, cat: 'major',
+               pre: ['M408D', 'COE311K'], alias: ['COE 362', 'M 362K'],
+               note: 'Prerequisites shown are for COE 362 (M 408D, COE 311K). Check the math department listing for M 362K.' },
+    COE321K: { code: 'COE 321K', title: 'Computational Methods for Structural Analysis', hrs: 3, cat: 'major', pre: ['COE311K', 'EM319'] },
+    COE347:  { code: 'COE 347',  title: 'Introduction to Computational Fluid Dynamics', hrs: 3, cat: 'major', pre: ['COE311K', 'ASE320'] },
+    COE374D: { code: 'COE 374D', title: 'Computational Systems Senior Design I', hrs: 3, cat: 'major', pre: ['COE352', ['COE321K', 'COE347']] },
+    COE374E: { code: 'COE 374E', title: 'Computational Systems Senior Design II', hrs: 3, cat: 'major', pre: ['COE374D'] },
+
+    ...FS.pick('UGS', 'E316', 'VAPA', 'AMHIST', 'USHIST', 'GOV310L', 'GOV312', 'SBS'),
+
+    MATHCOMP: { code: 'Math/Comp Elective', title: 'Math/computational technical elective', hrs: 3, cat: 'tech', pool: 'mathcomp',
+                note: 'One of: M 325K Discrete Mathematics; M 340L Matrices and Matrix Calculations; M 368K Numerical Methods for Applications (needs M 348); SDS 322E Elements of Data Science; SDS 324E Elements of Regression Analysis. Faculty approve each technical elective before you enroll.' },
+    FOUND:    { code: 'Foundational Elective', title: 'Foundational technical elective', hrs: 3, cat: 'tech', pool: 'found',
+                note: 'One of: ASE 362K Compressible Flow (ASE 320); ASE 366K Spacecraft Dynamics (COE 311K, E M 311M, M 427J); ASE 479W Aerial Robotics (ASE 330M); M E 344 Dynamic Systems and Controls; RBT 350 Gateway to Robotics.' },
+    ...FS.slots('ADV', 2, { code: 'Advanced Elective', title: 'Advanced or math/computational elective', hrs: 3, cat: 'tech', pool: 'adv',
+      note: 'Six hours from: COE 379L topics (Introduction to Machine Learning and Data Sciences, needs COE 322 and M 427J or 340L; Simulation-based Aerodynamic Design; Computational Methods, needs M 408D and COE 301; Software Design for Responsible Intelligent Systems); M 361K Introduction to Real Analysis; or the math/computational list.' }),
+  },
+  plan: [
+    ['M408C', 'CH301', 'COE301', 'ME210', 'RHE306'],
+    ['M408D', 'PHY303K', 'PHY105M', 'COE322', 'UGS', 'GOV310L'],
+    ['M427J', 'PHY303L', 'PHY105N', 'EM306', 'COE311K', 'ME310T'],
+    ['M427L', 'EM311M', 'EM319', 'COE332', 'ES333T'],
+    ['ASE320', 'COE352', 'COE321K', 'ASE330M', 'COE362'],
+    ['COE347', 'ASE375', 'MATHCOMP', 'E316', 'VAPA'],
+    ['COE374D', 'FOUND', 'ADV1', 'AMHIST', 'GOV312'],
+    ['COE374E', 'ADV2', 'USHIST', 'SBS'],
+  ],
+  pools: {
+    mathcomp: { codes: ['M 325K', 'M 340L', 'M 368K', 'SDS 322E', 'SDS 324E'] },
+    found: { codes: ['ASE 362K', 'ASE 366K', 'ASE 479W', 'M E 344', 'RBT 350'] },
+    adv: { codes: ['COE 379L', 'M 361K', 'M 325K', 'M 340L', 'M 368K', 'SDS 322E', 'SDS 324E'] },
+  },
+  notes: [
+    'Critical path: two chains meet at senior design. COE 301, COE 322, COE 352, COE 374D, COE 374E; and M 408C, M 408D, M 427L, ASE 320, COE 347, COE 374D.',
+    'COE 374D needs COE 352 plus either COE 321K or COE 347.',
+    'Every degree course needs a C- or better, letter-graded. Computational engineering faculty must approve each technical elective before you enroll.',
+    'The suggested semester order here is FourSight\'s, built to meet every prerequisite. Compare it with the department flowchart in the Box folder.',
+  ],
+  links: [
+    { label: 'Catalog page', url: 'https://catalog.utexas.edu/undergraduate/programs/computational-engineering-bscompe/' },
+    { label: 'Flowcharts and elective lists (Box)', url: 'https://utexas.app.box.com/v/degree-plan-flow-charts' },
+  ],
+});

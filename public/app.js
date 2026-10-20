@@ -7,9 +7,11 @@
 (() => {
   'use strict';
 
-  const C = window.COURSES;
-  const BASE = JSON.parse(JSON.stringify(C)); // the catalog as shipped; C adds each student's changes
-  const CATS = window.CATEGORIES;
+  const C = window.COURSES;  // the selected program's catalog with this student's changes
+  const FSP = window.FS.programs;
+  let P = null;              // the selected program (see data.js and programs/)
+  let BASE = {};             // its courses as shipped, with on-time limits filled in
+  let CATS = {};             // its course types: key -> { label }
   const $ = (id) => document.getElementById(id);
   const svgNS = 'http://www.w3.org/2000/svg';
 
@@ -67,24 +69,35 @@
   function rebuildEdges() {
     ALL_EDGES = [];
     const seen = new Set();
-    const add = (from, to, type) => {
+    // `any` lists the options of a one-of requirement ("ECE 312 or 313"); each option gets a line.
+    const add = (from, to, type, any) => {
       const id = `${from}${type === 'pre' ? '>' : '~'}${to}`;
-      if (C[from] && C[to] && from !== to && !seen.has(id)) { seen.add(id); ALL_EDGES.push({ id, from, to, type }); }
+      if (C[from] && C[to] && from !== to && !seen.has(id)) { seen.add(id); ALL_EDGES.push(any ? { id, from, to, type, any } : { id, from, to, type }); }
+    };
+    const each = (list, fn) => {
+      for (const p of list || []) {
+        if (!Array.isArray(p)) { fn(p, null); continue; }
+        const opts = p.filter((o) => C[o]);
+        for (const o of opts) fn(o, opts.length > 1 ? opts : null);
+      }
     };
     for (const [id, c] of Object.entries(C)) {
       // A course with its own "unlocks" list (added or edited) decides which courses it leads to.
-      for (const p of c.pre || []) if (!C[p] || !C[p].unlocks || C[p].unlocks.includes(id)) add(p, id, 'pre');
-      for (const p of c.co || []) add(p, id, 'co');
+      each(c.pre, (p, any) => { if (!C[p] || !C[p].unlocks || C[p].unlocks.includes(id)) add(p, id, 'pre', any); });
+      each(c.co, (p, any) => add(p, id, 'co', any));
       for (const t of c.unlocks || []) add(id, t, 'pre');
     }
-    const kept = ALL_EDGES.slice();
+    // One-of lines are always drawn: no single option is required, so they neither hide other
+    // lines nor get hidden by them.
+    const plain = ALL_EDGES.filter((e) => !e.any);
+    const kept = plain.slice();
     updateLegendCounts();
-    const order = ALL_EDGES.slice().sort((a, b) => (a.type === b.type ? 0 : a.type === 'pre' ? -1 : 1));
+    const order = plain.slice().sort((a, b) => (a.type === b.type ? 0 : a.type === 'pre' ? -1 : 1));
     for (const e of order) {
       const others = kept.filter((f) => f !== e);
       if (impliedByChain(e, others)) kept.splice(kept.indexOf(e), 1);
     }
-    EDGES = ALL_EDGES.filter((e) => kept.includes(e));
+    EDGES = ALL_EDGES.filter((e) => e.any || kept.includes(e));
   }
   rebuildEdges();
 
@@ -95,8 +108,12 @@
     for (const id of Object.keys(C)) delete C[id];
     for (const [id, c] of Object.entries(BASE)) if (!removed.includes(id)) C[id] = { ...c, ...edits[id] };
     for (const [id, c] of Object.entries(custom)) C[id] = { ...c, custom: true };
+    for (const c of Object.values(C)) if (!CATS[c.cat]) c.cat = CATS[OLD_CATS[c.cat]] ? OLD_CATS[c.cat] : 'major';
     rebuildEdges();
   }
+  // Course types were named after ChE before other programs arrived.
+  const OLD_CATS = { che: 'major', chem: 'alt' };
+
   // After the plan is replaced (reset or transcript), put added courses back in their old term.
   function keepCustom(oldPlan) {
     for (const id of Object.keys(S.custom)) {
@@ -128,7 +145,9 @@
   const termName = (t) => (t.kind === 'credit' ? 'AP / Credit by Exam' : `${KIND[t.kind]} ${t.year}`);
   const isRegular = (t) => t.kind === 'fall' || t.kind === 'spring';
   const nameAt = (i) => (S.terms[i] ? termName(S.terms[i]) : '');
+  // A program's suggested terms: eight falls and springs unless it plans a summer (Geosystems).
   function defaultTerms() {
+    if (P.terms) return P.terms.map((t) => ({ ...t }));
     const t = [];
     for (let y = 1; y <= 4; y++) t.push({ kind: 'fall', year: y }, { kind: 'spring', year: y });
     return t;
@@ -148,11 +167,13 @@
   }
   const isExtra = (t) => isRegular(t) && t.year > 4;
 
-  // One plan per browser. The key keeps plans saved before sign-in was removed.
-  const PLAN_KEY = 'dp.plan.me';
+  // One saved plan per program. ChE plans saved before programs existed used 'dp.plan.me'.
+  const planKey = () => `dp.plan.${P.id}`;
   function savedState() {
     try {
-      const saved = JSON.parse(localStorage.getItem(PLAN_KEY) || 'null');
+      let raw = localStorage.getItem(planKey());
+      if (!raw && P.id === 'che') raw = localStorage.getItem('dp.plan.me');
+      const saved = JSON.parse(raw || 'null');
       applyCourses(saved ? { custom: saved.custom || {}, edits: saved.edits || {}, removed: saved.removed || [] } : {});
       if (validState(saved)) {
         return {
@@ -163,19 +184,19 @@
       }
     } catch (_) { /* storage unavailable */ }
     applyCourses({});
-    return { terms: defaultTerms(), plan: clone(window.SUGGESTED_PLAN), done: new Set(), ...emptyTranscript() };
+    return { terms: defaultTerms(), plan: clone(P.plan), done: new Set(), ...emptyTranscript() };
   }
   const emptyTranscript = () => ({ credit: new Set(), taken: {}, prior: [], fromTranscript: new Set(), transcript: null });
   function validState(st) {
     if (!st || !Array.isArray(st.terms) || !Array.isArray(st.plan) || st.terms.length !== st.plan.length) return false;
     const ids = st.plan.flat();
-    // Every required course must be placed once; the optional CHE 102 may be left out.
+    // Every required course must be placed once; optional courses (like CHE 102) may be left out.
     return ids.every((id) => C[id]) && new Set(ids).size === ids.length &&
       Object.keys(C).every((id) => C[id].optional || C[id].custom || ids.includes(id));
   }
   function save() {
     try {
-      localStorage.setItem(PLAN_KEY, JSON.stringify({
+      localStorage.setItem(planKey(), JSON.stringify({
         terms: S.terms, plan: S.plan, done: [...S.done], credit: [...S.credit], taken: S.taken, prior: S.prior,
         fromTranscript: [...S.fromTranscript], transcript: S.transcript, custom: S.custom, edits: S.edits, removed: S.removed,
       }));
@@ -189,15 +210,45 @@
 
   // ---------------------------------------------------------------- rules
   // pre: the prerequisite must be in an earlier semester. co: same semester or earlier.
+  // A one-of line only breaks when none of its options comes in time.
   function edgeBroken(plan, e) {
-    const a = semOf(plan, e.from), b = semOf(plan, e.to);
-    return e.type === 'pre' ? a >= b : a > b;
+    const b = semOf(plan, e.to);
+    const ok = (from) => { const a = semOf(plan, from); return e.type === 'pre' ? a < b : a <= b; };
+    return e.any ? !e.any.some(ok) : !ok(e.from);
   }
+  // offTerm: courses planned in a term they are not offered (fall-only in a spring, and so on).
   function analyze(plan) {
-    const broken = new Set(), badCourses = new Set(), late = new Set();
+    const broken = new Set(), badCourses = new Set(), late = new Set(), offTerm = new Set();
     for (const e of EDGES) if (edgeBroken(plan, e)) { broken.add(e.id); badCourses.add(e.to); }
-    plan.forEach((sem, i) => sem.forEach((id) => { if (i >= lateFrom(C[id].latest)) late.add(id); }));
-    return { broken, badCourses, late };
+    plan.forEach((sem, i) => sem.forEach((id) => {
+      if (i >= lateFrom(C[id].latest)) late.add(id);
+      const t = S.terms[i];
+      if (C[id].offered && t && t.kind !== 'credit' && t.kind !== C[id].offered && !S.done.has(id)) offTerm.add(id);
+    }));
+    return { broken, badCourses, late, offTerm };
+  }
+
+  // Programs without department on-time figures get them from the prerequisite chain: a course
+  // is on time while every course that depends on it still fits in the four years.
+  function withOnTimeLimits(courses, regularTerms) {
+    const next = {};
+    for (const [id, c] of Object.entries(courses)) {
+      for (const p of c.pre || []) if (typeof p === 'string' && courses[p]) (next[p] ||= []).push([id, 1]);
+      for (const p of c.co || []) if (typeof p === 'string' && courses[p]) (next[p] ||= []).push([id, 0]);
+    }
+    const memo = {}, visiting = new Set();
+    const depth = (id) => {
+      if (id in memo) return memo[id];
+      if (visiting.has(id)) return 0; // co-requisite pairs point at each other
+      visiting.add(id);
+      const d = Math.max(0, ...(next[id] || []).map(([to, step]) => step + depth(to)));
+      visiting.delete(id);
+      return (memo[id] = d);
+    };
+    for (const [id, c] of Object.entries(courses)) {
+      if (c.latest == null) { c.latest = Math.max(0, regularTerms - 1 - depth(id)); c.latestFromChain = true; }
+    }
+    return courses;
   }
   const hours = (sem) => sem.reduce((n, id) => n + C[id].hrs, 0);
 
@@ -238,14 +289,13 @@
       `<div class="line-keys">` +
         `<span><svg viewBox="0 0 26 10"><path d="M1 5h22" stroke="var(--edge)" stroke-width="2"/></svg>Prerequisite</span>` +
         `<span><svg viewBox="0 0 26 10"><path d="M1 5h22" stroke="var(--edge)" stroke-width="2" stroke-dasharray="4 3"/></svg>Co-requisite</span>` +
+        (ALL_EDGES.some((e) => e.any) ? `<span><svg viewBox="0 0 26 10"><path d="M1 5h22" stroke="var(--edge)" stroke-width="2" stroke-dasharray="1 4" stroke-linecap="round"/></svg>One of several</span>` : '') +
         `<span><svg viewBox="0 0 26 10"><path d="M1 5h22" stroke="var(--bad)" stroke-width="2.4" stroke-dasharray="6 4"/></svg>Broken chain</span>` +
       `</div>`;
 
     const drop = $('typedrop'), btn = $('tdBtn');
     const setOpen = (open) => { drop.classList.toggle('open', open); btn.setAttribute('aria-expanded', open); };
     btn.addEventListener('click', (ev) => { ev.stopPropagation(); setOpen(!drop.classList.contains('open')); });
-    document.addEventListener('click', (ev) => { if (!drop.contains(ev.target)) setOpen(false); });
-    window.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') setOpen(false); });
     drop.querySelectorAll('.td-item').forEach((b) => {
       b.addEventListener('mouseenter', () => highlightCategory(b.dataset.cat || null));
       b.addEventListener('mouseleave', () => highlightCategory(S.catFocus));
@@ -269,6 +319,14 @@
       b.querySelector('b').textContent = Object.values(C).filter((c) => !k || c.cat === k).length;
     });
   }
+
+  // The type dropdown is rebuilt per program; these close whichever one is showing.
+  const closeTypeDrop = () => {
+    const d = $('typedrop');
+    if (d) { d.classList.remove('open'); $('tdBtn').setAttribute('aria-expanded', false); }
+  };
+  document.addEventListener('click', (ev) => { const d = $('typedrop'); if (d && !d.contains(ev.target)) closeTypeDrop(); });
+  window.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeTypeDrop(); });
 
   function buildSemnav() {
     const tr = $('semnav').querySelector('.semnav-track');
@@ -303,7 +361,7 @@
         `<span class="col-hours"></span>${removable ? `<button class="term-remove" title="Remove term" aria-label="Remove ${termName(t)}">${ICON.close}</button>` : ''}</div>` +
         `<div class="col-body"></div>` +
         S.prior.filter((pc) => pc.index === i).map((pc) =>
-          `<div class="prior-chip" title="Counts as a prerequisite, not toward the 129 hours">` +
+          `<div class="prior-chip" title="Counts as a prerequisite, not toward the ${P.hours} hours">` +
           `<b>${pc.code}</b><span>${pc.grade === 'CR' ? 'AP credit (CR)' : pc.grade ? `Grade ${pc.grade}` : 'In progress'}: prerequisite credit</span></div>`).join('');
       if (t.kind === 'spring' && (!S.terms[i + 1] || S.terms[i + 1].kind !== 'summer')) {
         const add = document.createElement('button');
@@ -375,9 +433,12 @@
       delay = Math.max(delay, si * 70 + k * 35);
     }));
 
-    for (const e of EDGES) {
+    // Every requirement gets a path, including ones the overview leaves out because a longer chain
+    // implies them: a focused course shows all of its direct links.
+    for (const e of ALL_EDGES) {
       const p = document.createElementNS(svgNS, 'path');
       p.classList.add('edge', e.type);
+      if (e.any) p.classList.add('any');
       edgesG.appendChild(p);
       pathEl[e.id] = p;
     }
@@ -410,15 +471,16 @@
 
   // Classes and counters that depend on the plan's validity or on hover.
   function paint() {
-    const { broken, badCourses, late } = analyze(S.plan);
+    const { broken, badCourses, late, offTerm } = analyze(S.plan);
     // A pinned chain stays lit while swiping, ahead of whatever the pointer passes over.
     const focusId = S.pinned || S.hover || S.selected;
+    // The whole chain stays highlighted; arrows show only one step each way from the course.
     const lit = focusId ? chainOf(focusId) : null;
 
     const cat = !lit && S.catFocus;
     for (const [id, el] of Object.entries(cardEl)) {
       el.classList.toggle('bad', badCourses.has(id));
-      el.classList.toggle('late', late.has(id));
+      el.classList.toggle('late', late.has(id) || offTerm.has(id));
       el.classList.toggle('dim', lit ? !lit.cards.has(id) : !!cat && C[id].cat !== cat);
       el.classList.toggle('lit', !!lit && lit.cards.has(id));
       el.classList.toggle('selected', S.selected === id);
@@ -427,10 +489,10 @@
       el.classList.toggle('done', S.done.has(id));
       el.querySelector('.check').setAttribute('aria-pressed', S.done.has(id));
     }
-    for (const e of EDGES) {
+    for (const e of ALL_EDGES) {
       const p = pathEl[e.id];
       const bad = broken.has(e.id);
-      const isLit = !!lit && lit.edges.has(e.id);
+      const isLit = !!focusId && (e.from === focusId || e.to === focusId);
       p.classList.toggle('bad', bad);
       p.classList.toggle('lit', isLit && !bad);
       p.classList.toggle('dim', lit ? !isLit : !!cat && !(C[e.from].cat === cat && C[e.to].cat === cat));
@@ -439,6 +501,9 @@
       const layer = bad ? edgesTopG : edgesG;
       if (p.parentNode !== layer) layer.appendChild(p);
     }
+    // Which lines show changed, so their endpoints need spreading again.
+    const shownKey = `${focusId}|${[...broken].join()}`;
+    if (shownKey !== lastShownKey) { lastShownKey = shownKey; drawLines(); }
 
     S.plan.forEach((sem, i) => {
       const h = hours(sem);
@@ -463,6 +528,9 @@
     } else if (late.size) {
       st.className = 'status bad';
       st.innerHTML = `${ICON.clock}${late.size} course${late.size === 1 ? '' : 's'} past on-time limit`;
+    } else if (offTerm.size) {
+      st.className = 'status bad';
+      st.innerHTML = `${ICON.clock}${offTerm.size} course${offTerm.size === 1 ? '' : 's'} in a term ${offTerm.size === 1 ? 'it isn\'t' : 'they aren\'t'} offered`;
     } else {
       st.className = 'status ok';
       st.innerHTML = `${ICON.ok}All prerequisites satisfied`;
@@ -477,6 +545,8 @@
   }
   $('pinChipGo').addEventListener('click', () => { if (S.pinned) focusCourse(S.pinned); });
   $('pinChipClose').addEventListener('click', () => { if (S.pinned) togglePin(S.pinned); });
+
+  let lastShownKey = '';
 
   // Everything upstream and downstream of a course.
   function chainOf(id) {
@@ -536,21 +606,25 @@
     const sem = {};
     S.plan.forEach((s, i) => s.forEach((id) => { sem[id] = i; }));
 
-    // Spread line endpoints over each card's edge so bundles do not stack on one pixel.
+    // Spread the endpoints of the lines on show over each card's edge so bundles do not stack on
+    // one pixel. Hidden lines attach at the middle until they show.
+    const shown = (e) => pathEl[e.id] && (pathEl[e.id].classList.contains('lit') || pathEl[e.id].classList.contains('bad'));
     const outPorts = {}, inPorts = {};
-    for (const e of EDGES) {
+    for (const e of ALL_EDGES) {
+      if (!shown(e)) continue;
       (outPorts[e.from] ||= []).push(e);
       (inPorts[e.to] ||= []).push(e);
     }
     const portY = (list, e, id, otherKey) => {
       const r = rects[id];
+      if (!list || !list.includes(e)) return r.y + r.h / 2;
       const sorted = list.slice().sort((a, b) => rects[a[otherKey]].y - rects[b[otherKey]].y);
       const n = sorted.length, i = sorted.indexOf(e);
       const step = n > 1 ? Math.min(9, (r.h * 0.6) / (n - 1)) : 0;
       return r.y + r.h / 2 + (i - (n - 1) / 2) * step;
     };
 
-    for (const e of EDGES) {
+    for (const e of ALL_EDGES) {
       const a = rects[e.from], b = rects[e.to];
       const ay = portY(outPorts[e.from], e, e.from, 'to');
       const by = portY(inPorts[e.to], e, e.to, 'from');
@@ -912,7 +986,7 @@
   function reqItem(reqId, ok, tag) {
     if (!C[reqId]) {
       const pc = S.prior.find((x) => x.code.replace(/\s/g, '') === reqId);
-      const text = pc ? `${pc.code}: ${pc.grade === 'CR' ? 'AP credit (CR)' : pc.grade ? `grade ${pc.grade}` : 'in progress'} on your transcript` : (window.PRIOR_CREDIT[reqId] || reqId);
+      const text = pc ? `${pc.code}: ${pc.grade === 'CR' ? 'AP credit (CR)' : pc.grade ? `grade ${pc.grade}` : 'in progress'} on your transcript` : ((P.prior && P.prior[reqId]) || reqId);
       return `<li class="ext">${ICON.info}<span>${text}</span></li>`;
     }
     const s = semOf(S.plan, reqId);
@@ -927,8 +1001,17 @@
     const sem = semOf(S.plan, id);
     // Requirements come from the edges (added and edited courses change them), plus credit from
     // outside the plan such as CH 301. Deleted catalog courses are dropped.
-    const outside = (list) => (list || []).filter((p) => !C[p] && !BASE[p]);
-    const into = (type) => ALL_EDGES.filter((e) => e.to === id && e.type === type).map((e) => e.from);
+    const outside = (list) => (list || []).filter((p) => typeof p === 'string' && !C[p] && !BASE[p]);
+    const into = (type) => ALL_EDGES.filter((e) => e.to === id && e.type === type && !e.any).map((e) => e.from);
+    // One-of requirements, each shown once with all its options.
+    const groups = [];
+    for (const e of ALL_EDGES) {
+      if (e.to !== id || !e.any || groups.some((g) => g.type === e.type && g.opts === e.any)) continue;
+      groups.push({ type: e.type, opts: e.any, ok: !edgeBroken(S.plan, e) });
+    }
+    const groupItems = groups.map((g) => `<li class="${g.ok ? 'ok' : 'bad'}">${g.ok ? ICON.check : ICON.x}<span class="one-of">One of</span>` +
+      g.opts.map((o) => `<button data-go="${o}">${C[o].code}</button>`).join('<span class="or">or</span>') +
+      `${g.type === 'co' ? '<span class="tag">co-req</span>' : ''}</li>`);
     const preIds = [...into('pre'), ...outside(c.pre)];
     const coIds = [...into('co'), ...outside(c.co)];
     const pre = preIds.map((p) => reqItem(p, !C[p] || semOf(S.plan, p) < sem));
@@ -936,19 +1019,24 @@
     const unlocks = ALL_EDGES.filter((e) => e.from === id).map((e) => {
       const ok = !edgeBroken(S.plan, e);
       return `<li class="${ok ? 'ok' : 'bad'}">${ok ? ICON.check : ICON.x}<button data-go="${e.to}">${C[e.to].code}</button>` +
-        `${e.type === 'co' ? '<span class="tag">co-req</span>' : ''}<span class="sem">${nameAt(semOf(S.plan, e.to))}</span></li>`;
+        `${e.type === 'co' ? '<span class="tag">co-req</span>' : ''}${e.any ? '<span class="tag">one of</span>' : ''}<span class="sem">${nameAt(semOf(S.plan, e.to))}</span></li>`;
     });
     const badPre = preIds.filter((p) => C[p] && semOf(S.plan, p) >= sem);
     const badCo = coIds.filter((p) => C[p] && semOf(S.plan, p) > sem);
     let alerts = '';
-    if (badPre.length || badCo.length) {
+    const badGroups = groups.filter((g) => !g.ok);
+    if (badPre.length || badCo.length || badGroups.length) {
       const parts = [];
       if (badPre.length) parts.push(`${badPre.map((p) => C[p].code).join(', ')} must be completed in an earlier semester`);
       if (badCo.length) parts.push(`${badCo.map((p) => C[p].code).join(', ')} must be taken in the same semester or earlier`);
+      for (const g of badGroups) parts.push(`one of ${g.opts.map((o) => C[o].code).join(' or ')} must come ${g.type === 'pre' ? 'in an earlier semester' : 'in the same semester or earlier'}`);
       alerts += `<div class="d-alert bad"><strong>Prerequisite chain broken.</strong> ${parts.join('; ')}.</div>`;
     }
     if (c.latest != null && sem >= lateFrom(c.latest)) {
       alerts += `<div class="d-alert warn"><strong>Past the on-time limit.</strong> To graduate in four years, take ${c.code} no later than ${latestName(c.latest)}.</div>`;
+    }
+    if (c.offered && analyze(S.plan).offTerm.has(id)) {
+      alerts += `<div class="d-alert warn"><strong>Not offered then.</strong> ${c.code} is offered in the ${c.offered} only, but it is planned for ${nameAt(sem)}.</div>`;
     }
     const openPre = [...preIds, ...coIds].filter((p) => C[p] && !S.done.has(p));
     if (S.done.has(id) && openPre.length) {
@@ -959,16 +1047,17 @@
     if (c.note) alerts += `<div class="d-alert note">${c.note}</div>`;
     if (c.custom) alerts += `<div class="d-alert note">You added this course.</div>`;
     else if (S.edits[id]) alerts += `<div class="d-alert note">You edited this course. Reset to suggested restores the original.</div>`;
-    if (c.optional) alerts += `<div class="d-alert note">Optional course. Students who skip it take 16 hours in their first fall instead.</div>`;
 
     $('drawerBody').innerHTML =
       `<div class="d-cat" style="color:var(--${c.cat})"><i style="background:var(--${c.cat})"></i>${CATS[c.cat].label}</div>` +
       `<div class="d-code">${c.code}</div><p class="d-title">${c.title}</p>` +
       `<div class="d-actions"><button class="d-done${S.done.has(id) ? ' on' : ''}" id="dDone">${S.done.has(id) ? `${ICON.ok}Completed` : `${ICON.check}Mark as completed`}</button>` +
       `<button class="d-done d-edit" id="dEdit">${ICON.edit}Edit</button><button class="d-done d-delete" id="dDelete">${ICON.trash}Delete</button></div>` +
-      `<div class="d-meta"><span>${c.hrs} credit hours</span><span>Planned: ${nameAt(sem)}</span>${c.latest != null ? `<span>Latest on track: ${latestName(c.latest)}</span>` : ''}</div>` +
+      `<div class="d-meta"><span>${c.hrs} credit hours</span><span>Planned: ${nameAt(sem)}</span>` +
+      `${c.latest != null ? `<span${c.latestFromChain ? ' title="Worked out from the prerequisite chain, so every later course still fits in four years"' : ''}>Latest on track: ${latestName(c.latest)}</span>` : ''}` +
+      `${c.offered ? `<span>Offered: ${c.offered} only</span>` : ''}</div>` +
       alerts +
-      `<h3>Requires</h3>${pre.length || co.length ? `<ul class="req">${pre.join('')}${co.join('')}</ul>` : '<p class="empty">No prerequisites.</p>'}` +
+      `<h3>Requires</h3>${pre.length || co.length || groupItems.length ? `<ul class="req">${pre.join('')}${groupItems.join('')}${co.join('')}</ul>` : '<p class="empty">No prerequisites.</p>'}` +
       `<h3>Leads to</h3>${unlocks.length ? `<ul class="req">${unlocks.join('')}</ul>` : '<p class="empty">Not a prerequisite for other required courses.</p>'}`;
     $('drawerBody').querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => focusCourse(b.dataset.go, true)));
     $('dDone').addEventListener('click', () => toggleDone(id));
@@ -1004,11 +1093,19 @@
       const why = e.type === 'pre'
         ? (sa === sb ? `are both in ${sb}, but ${a.code} must come first` : `${a.code} is in ${sa}, after ${b.code} in ${sb}`)
         : `${a.code} (${sa}) must be taken with or before ${b.code} (${sb})`;
+      if (e.any) {
+        if (e.any[0] !== e.from) continue; // one entry per one-of requirement
+        items.push(`<li><button data-go="${e.to}"><b>${b.code}</b> needs one of <b>${e.any.map((o) => C[o].code).join(' or ')}</b> ${e.type === 'pre' ? 'in an earlier semester' : 'in the same semester or earlier'}.</button></li>`);
+        continue;
+      }
       items.push(`<li><button data-go="${e.to}"><b>${b.code}</b> needs <b>${a.code}</b>: ${e.type === 'pre' && sa === sb ? `they ${why}` : why}.</button></li>`);
     }
-    const { late } = analyze(S.plan);
+    const { late, offTerm } = analyze(S.plan);
     for (const id of late) {
       items.push(`<li class="warn"><button data-go="${id}"><b>${C[id].code}</b> is planned for ${nameAt(semOf(S.plan, id))}. Take it by ${latestName(C[id].latest)} to stay on a four-year track.</button></li>`);
+    }
+    for (const id of offTerm) {
+      items.push(`<li class="warn"><button data-go="${id}"><b>${C[id].code}</b> is offered in the ${C[id].offered} only, but it is planned for ${nameAt(semOf(S.plan, id))}.</button></li>`);
     }
     $('issuesList').innerHTML = items.join('') || '<li class="empty">No conflicts.</li>';
     $('issuesList').querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => focusCourse(b.dataset.go, true)));
@@ -1043,7 +1140,7 @@
     // Brings back deleted and edited catalog courses.
     applyCourses({ custom: keepAdded ? S.custom : {} });
     S.terms = defaultTerms();
-    S.plan = clone(window.SUGGESTED_PLAN);
+    S.plan = clone(P.plan);
     keepCustom(oldPlan);
     // Undo everything the transcript set; check-offs made by hand stay if asked.
     if (keepDone) { for (const id of S.fromTranscript) S.done.delete(id); } else S.done = new Set();
@@ -1113,7 +1210,7 @@
     const editing = editId ? C[editId] : null;
     // Current links of the course being edited, as the form's starting selections.
     const linked = (type, dir) => !editId ? [] : ALL_EDGES
-      .filter((e) => e.type === type && (dir === 'in' ? e.to : e.from) === editId).map((e) => (dir === 'in' ? e.from : e.to));
+      .filter((e) => !e.any && e.type === type && (dir === 'in' ? e.to : e.from) === editId).map((e) => (dir === 'in' ? e.from : e.to));
     const sel = { acPre: linked('pre', 'in'), acCo: linked('co', 'in'), acPost: linked('pre', 'out') };
     // Checklist of every other course in the plan, grouped by term.
     const picker = (name) => S.plan.map((ids, i) => {
@@ -1443,7 +1540,7 @@
     progress: ['In progress', 'Placed in its term, not yet marked complete'],
     notpassed: ['Not completed', 'Grade does not complete the requirement, so it is scheduled again'],
     duplicate: ['Repeat', 'Requirement was already complete'],
-    ignored: ['Not applicable', 'Does not count toward the ChE degree plan, left out of the flowchart'],
+    ignored: ['Not applicable', 'Does not count toward this degree plan, left out of the flowchart'],
   };
   function showReport() {
     const t = S.transcript;
@@ -1454,7 +1551,7 @@
     const counts = groups.map(([st, rows]) => `<span class="m-pill ${st}">${rows.length} ${PILL[st]}</span>`).join('');
     openModal(
       `<h2 id="modalTitle">Plan built from ${esc(t.name)}</h2>` +
-      `<p class="m-sub">Only courses that apply to the McKetta Chemical Engineering curriculum were added to your flowchart. ` +
+      `<p class="m-sub">Only courses that apply to the ${esc(programName())} curriculum were added to your flowchart. ` +
       `${t.scheduled} remaining courses were scheduled into future terms in the department's suggested order, with every prerequisite respected.</p>` +
       `<div class="m-pills">${counts}</div>` +
       groups.map(([st, rows]) =>
@@ -1525,9 +1622,43 @@
   }
   try { setPanels(localStorage.getItem('dp.panels') === 'min', false); } catch (_) { /* ignore */ }
 
+  // ---------------------------------------------------------------- programs
+  const programName = (p = P) => (p.concentration ? `${p.name}: ${p.concentration}` : p.name);
+
+  // Options follow FS.order; ECE's concentrations share an option group.
+  $('programSelect').innerHTML = window.FS.order.map((o) => (o.group
+    ? `<optgroup label="${o.group}">${o.ids.map((id) => `<option value="${id}">ECE: ${FSP[id].concentration}</option>`).join('')}</optgroup>`
+    : `<option value="${o.id}">${FSP[o.id].name}</option>`)).join('');
+  $('programSelect').addEventListener('change', (ev) => selectProgram(ev.target.value));
+
+  function selectProgram(id) {
+    P = FSP[id] || FSP.che;
+    CATS = Object.fromEntries(Object.entries(P.categories).map(([k, label]) => [k, { label }]));
+    BASE = withOnTimeLimits(window.FS.clone(P.courses), defaultTerms().filter(isRegular).length);
+    window.FS_PROGRAM = P; // transcript.js matches against the selected program
+    S.catFocus = null;
+    try { localStorage.setItem('dp.program', P.id); } catch (_) { /* ignore */ }
+    $('programSelect').value = P.id;
+    $('brandDept').textContent = P.dept;
+    $('brandMeta').textContent = `${P.degree}, 2026-28 catalog: ${P.hours} hours`;
+    loadPlan();
+    buildLegend();
+  }
+
+  // Program notes: critical path, rules and caveats from the catalog review, plus source links.
+  $('programInfo').addEventListener('click', () => {
+    openModal(`<h2 id="modalTitle">${esc(programName())}</h2>` +
+      `<p class="m-sub">${esc(P.degree)}, ${esc(P.dept)}. ${P.hours} hours under the 2026-28 catalog.</p>` +
+      `<ul class="pn-notes">${(P.notes || []).map((n) => `<li>${esc(n)}</li>`).join('')}` +
+      `<li>Prerequisites come from the 2025-26 course listings, because the 2026-27 listings leave prerequisite text out. ` +
+      `Students may follow any catalog in effect while they were enrolled in Cockrell. Confirm your plan with the Interactive Degree Audit and your department's advising office.</li></ul>` +
+      `<h3 class="pn-h">Sources</h3><ul class="pn-links">${(P.links || []).map((l) => `<li><a href="${l.url}" target="_blank" rel="noopener">${esc(l.label)}</a></li>`).join('')}</ul>`);
+  });
+
   // ---------------------------------------------------------------- boot
-  buildLegend();
-  loadPlan();
+  let startProgram = 'che';
+  try { startProgram = localStorage.getItem('dp.program') || 'che'; } catch (_) { /* ignore */ }
+  selectProgram(startProgram);
 
   // Debug handle for testing.
   window.__dp = { importText, revertToSuggested, S, analyze, EDGES, ALL_EDGES, edgeBroken, rectOf, scroller, toggleDone, addSummer, addRegular, removeTerm, lateFrom };

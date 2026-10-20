@@ -4,16 +4,15 @@
 //   parse(text)        -> [{ code, subj, num, title, hrs, grade, term }]
 //   build(courses)     -> { terms, plan, done, credit, taken, prior, report }
 //
-// Matching rules: a transcript course is only used when it fills a slot in the McKetta ChE
-// curriculum (a required course, a core area, the chemistry elective or a tech elective).
-// Anything else (for example KIN 310) is reported as ignored and left out of the flowchart.
+// Matching rules: a transcript course is only used when it fills a slot in the selected program
+// (a required course, a core area, or an elective slot whose pool lists it). Anything else (for
+// example KIN 310) is reported as ignored and left out of the flowchart.
 // A CR grade means credit by exam (AP and similar); those courses go in an "AP / Credit by Exam"
 // column before Fall 1.
 (() => {
   'use strict';
 
-  const C = window.COURSES;
-  const SUGGESTED = window.SUGGESTED_PLAN;
+  const C = window.COURSES;   // the selected program's live catalog (see app.js)
   const MAX_HOURS = 17;
 
   // ------------------------------------------------------------------ text extraction
@@ -117,55 +116,59 @@
   }
 
   // ------------------------------------------------------------------ matching
-  const DIRECT = {};
-  for (const [id, c] of Object.entries(C)) if (/^[A-Z ]+ \d{3}[A-Z]?$/.test(c.code)) DIRECT[c.code] = id;
-  Object.assign(DIRECT, {
+  // Core areas are matched the same way in every program.
+  const CORE_ALIASES = {
     'E 316K': 'E316', 'E 316L': 'E316', 'E 316M': 'E316', 'E 316N': 'E316', 'E 316P': 'E316',
     'UGS 302': 'UGS', 'UGS 303': 'UGS',
     'GOV 306C': 'GOV312', 'GOV 312L': 'GOV312', 'GOV 312P': 'GOV312',
-  });
-  const PRIOR = { 'CH 301': 'Principles of Chemistry I' };
-  const CHEM_ELECTIVE = new Set(['CH 431', 'CH 455', 'BCH 339F', 'BCH 369', 'CH 354', 'CH 354L', 'CH 354M', 'CH 367L', 'CH 371K', 'CH 367C', 'CH 368', 'CH 369K']);
+  };
   const US_HISTORY = new Set(['HIS 314K', 'HIS 315G', 'HIS 315K', 'HIS 315L', 'HIS 317L', 'HIS 320R', 'HIS 333L', 'HIS 355N', 'HIS 356K', 'AMS 310', 'AMS 315']);
   const VAPA_SUBJ = new Set(['ARH', 'ART', 'ARD', 'MUS', 'T D', 'TD', 'F A', 'DAN', 'AET', 'RTF']);
   const SBS_SUBJ = new Set(['ANT', 'ECO', 'PSY', 'SOC', 'GRG', 'LIN']);
-  // From "McKetta Technical Electives, 2020-2028 catalogs".
-  const TECH = new Set((
-    'CHE 322M,CHE 323,CHE 337,CHE 339,CHE 339P,CHE 339T,CHE 341,CHE 342,CHE 343,CHE 344,CHE 355,CHE 356,CHE 357,CHE 359,' +
-    'CHE 364S,CHE 376K,CHE 377K,CHE 377L,CHE 379,CHE 679HA,CHE 679HB,' +
-    'ARE 323K,BME 352,BME 353,BME 365R,BME 377T,C E 341,C E 342,C E 364,C E 369L,C E 370K,ECE 334K,E E 334K,ECE 339,E E 339,' +
-    'ECE 370K,E E 370K,ECE 374K,E E 374K,ECE 379K,E E 379K,E S 321G,E S 369N,M E 334,M E 335,M E 336P,M E 337C,M E 337G,' +
-    'M E 348F,M E 349,M E 353,M E 354,M E 359,M E 361E,M E 363M,M E 366L,M E 374F,M E 374S,M E 379M,PGE 301,PGE 323K,' +
-    'PGE 365,PGE 379,PGE 430,ACC 310F,BCH 339F,BCH 339J,BCH 339M,BCH 339N,BCH 364C,BCH 369,BCH 370,BIO 325,BIO 339,' +
-    'CH 341,CH 354,CH 354L,CH 368,CH 376K,ECO 304K,ECO 304L,ECO 328,ECO 339K,ECO 351K,FIN 357,GEO 303E,I B 378,INB 365S,' +
-    'BIO 365S,MAN 327,MBS 320,BIO 320,MBS 326R,BIO 326R,MIS 302F,MKT 320F,MKT 460,PHY 338K,PHY 355,PHY 375S'
-  ).split(','));
-  const RESEARCH = new Set(['CHE 377K', 'CHE 377L', 'E S 321G']);
   const isUpperMath = (c) => c.subj === 'M' && +c.num.slice(1, 3) >= 20 && !['M 427J', 'M 427L'].includes(c.code);
 
+  // What the selected program accepts: course codes (and "X or Y" aliases), outside prerequisites
+  // and elective slots grouped by pool.
+  function matcher(P) {
+    const direct = {};
+    for (const [id, c] of Object.entries(C)) {
+      if (/^[A-Z ]+ \d{3}[A-Z]?$/.test(c.code)) direct[c.code] = id;
+      for (const a of c.alias || []) direct[a] = direct[a] || id;
+    }
+    for (const [code, id] of Object.entries(CORE_ALIASES)) if (C[id]) direct[code] = id;
+    const prior = new Set(Object.keys(P.prior || {}).map((id) => id.replace(/^([A-Z]+)(\d)/, '$1 $2')));
+    const slots = {};
+    for (const [id, c] of Object.entries(C)) if (c.pool && P.pools && P.pools[c.pool]) (slots[c.pool] ||= []).push(id);
+    const pools = {};
+    for (const [name, spec] of Object.entries(P.pools || {})) {
+      pools[name] = { codes: new Set(spec.codes || []), upperMath: !!spec.upperMath, research: new Set(spec.research || []) };
+    }
+    return { direct, prior, slots, pools };
+  }
+
   // Which plan slot a transcript course fills, given the slots already filled. Required courses
-  // win first, then core and chemistry elective slots, then tech electives.
-  function slotFor(c, used, flags) {
-    if (DIRECT[c.code]) return { id: DIRECT[c.code] };
-    if (PRIOR[c.code]) return { prior: true };
-    if (CHEM_ELECTIVE.has(c.code) && !used.has('CHEMEL')) return { id: 'CHEMEL', as: c.code };
-    if (US_HISTORY.has(c.code)) {
-      if (!used.has('AMHIST')) return { id: 'AMHIST', as: c.code };
-      if (!used.has('USHIST')) return { id: 'USHIST', as: c.code };
+  // win first, then core areas, then elective pools.
+  function slotFor(M, c, used, flags) {
+    const d = M.direct[c.code];
+    if (d) return C[d].code === c.code ? { id: d } : { id: d, as: c.code };
+    if (M.prior.has(c.code)) return { prior: true };
+    const freeOf = (...ids) => ids.find((id) => C[id] && !used.has(id));
+    if (US_HISTORY.has(c.code)) { const h = freeOf('AMHIST', 'USHIST'); if (h) return { id: h, as: c.code }; }
+    if (VAPA_SUBJ.has(c.subj) && freeOf('VAPA')) return { id: 'VAPA', as: c.code };
+    if (SBS_SUBJ.has(c.subj) && freeOf('SBS')) return { id: 'SBS', as: c.code };
+    let full = false;
+    for (const [name, ids] of Object.entries(M.slots)) {
+      const pool = M.pools[name];
+      const math = pool.upperMath && isUpperMath(c) && !flags.math;
+      if (!pool.codes.has(c.code) && !math) continue;
+      if (pool.research.has(c.code) && flags.research) continue;
+      const free = ids.find((id) => !used.has(id));
+      if (!free) { full = true; continue; }
+      if (math && !pool.codes.has(c.code)) flags.math = true;
+      if (pool.research.has(c.code)) flags.research = true;
+      return { id: free, as: c.code };
     }
-    if (VAPA_SUBJ.has(c.subj) && !used.has('VAPA')) return { id: 'VAPA', as: c.code };
-    if (SBS_SUBJ.has(c.subj) && !used.has('SBS')) return { id: 'SBS', as: c.code };
-    const tech = TECH.has(c.code) || (isUpperMath(c) && !flags.math);
-    if (tech && !(RESEARCH.has(c.code) && flags.research)) {
-      const free = ['TECH1', 'TECH2', 'TECH3', 'TECH4'].find((t) => !used.has(t));
-      if (free) {
-        if (isUpperMath(c)) flags.math = true;
-        if (RESEARCH.has(c.code)) flags.research = true;
-        return { id: free, as: c.code };
-      }
-      return { full: 'tech' };
-    }
-    return null;
+    return full ? { full: true } : null;
   }
 
   // ------------------------------------------------------------------ building the plan
@@ -175,6 +178,14 @@
   const label = (t) => (!t ? 'Undated' : t.kind === 'credit' ? 'Credit by exam' : `${t.kind[0].toUpperCase()}${t.kind.slice(1)} ${t.year}`);
 
   function build(courses) {
+    const P = window.FS_PROGRAM;
+    const M = matcher(P);
+    const SUGGESTED = P.plan;
+    const isRegular = (t) => t.kind === 'fall' || t.kind === 'spring';
+    // Suggested-plan index -> regular-term ordinal; a planned summer maps to the next fall.
+    const sugTerms = P.terms || null;
+    const regIndex = (s) => (sugTerms ? sugTerms.slice(0, s).filter(isRegular).length : s);
+    const lastRegular = (sugTerms ? sugTerms.filter(isRegular).length : 8) - 1;
     const report = [];
     const dated = courses.filter((c) => c.term && c.term.kind !== 'credit');
     dated.sort((a, b) => a.term.year - b.term.year || SEASON_ORDER[a.term.kind] - SEASON_ORDER[b.term.kind]);
@@ -188,12 +199,12 @@
       const passing = c.grade && PASSING.has(c.grade);
       const inProgress = !c.grade;
       const entry = { code: c.code, title: c.title, term: label(c.term), grade: c.grade || 'In progress' };
-      const slot = slotFor(c, new Set([...used].filter((id) => done.has(id) || placedAt[id])), flags);
-      if (!slot) { report.push({ ...entry, status: 'ignored', note: 'Does not apply to the ChE degree plan' }); continue; }
-      if (slot.full) { report.push({ ...entry, status: 'ignored', note: 'All four tech elective slots are already filled' }); continue; }
+      const slot = slotFor(M, c, new Set([...used].filter((id) => done.has(id) || placedAt[id])), flags);
+      if (!slot) { report.push({ ...entry, status: 'ignored', note: 'Does not apply to this degree plan' }); continue; }
+      if (slot.full) { report.push({ ...entry, status: 'ignored', note: 'Every elective slot it could fill is already filled' }); continue; }
       if (slot.prior) {
-        if (passing || inProgress) prior.push({ code: c.code, title: c.title || PRIOR[c.code], term: c.term, grade: c.grade });
-        report.push({ ...entry, status: c.grade === 'CR' ? 'credit' : passing ? 'applied' : inProgress ? 'progress' : 'notpassed', note: 'Prerequisite for CH 302 (not part of the 129 hours)' });
+        if (passing || inProgress) prior.push({ code: c.code, title: c.title, term: c.term, grade: c.grade });
+        report.push({ ...entry, status: c.grade === 'CR' ? 'credit' : passing ? 'applied' : inProgress ? 'progress' : 'notpassed', note: `Prerequisite credit (not part of the ${P.hours} hours)` });
         continue;
       }
       const id = slot.id;
@@ -246,7 +257,6 @@
     // 4. Schedule everything else from the first term after the transcript, keeping the
     //    department's suggested order, then push forward until every prerequisite holds and no
     //    future term goes over MAX_HOURS.
-    const isRegular = (t) => t.kind === 'fall' || t.kind === 'spring';
     const ensure = (i) => {
       while (terms.length <= i) {
         const regs = terms.filter(isRegular);
@@ -268,13 +278,15 @@
       // Optional first-semester course: if the transcript has no record of it, leave it out.
       if (C[id].optional && lastUsed >= 0) return;
       movable.add(id);
-      pos[id] = Math.max(ordinal(s), firstFuture);
+      pos[id] = Math.max(ordinal(regIndex(s)), firstFuture);
     }));
 
     const ALL = [];
+    // A one-of requirement schedules after its first option, which is the safe choice.
+    const first = (p) => (Array.isArray(p) ? p.find((o) => C[o]) : p);
     for (const [id, c] of Object.entries(C)) {
-      for (const p of c.pre || []) if (C[p]) ALL.push({ from: p, to: id, type: 'pre' });
-      for (const p of c.co || []) if (C[p]) ALL.push({ from: p, to: id, type: 'co' });
+      for (const p of (c.pre || []).map(first)) if (C[p]) ALL.push({ from: p, to: id, type: 'pre' });
+      for (const p of (c.co || []).map(first)) if (C[p]) ALL.push({ from: p, to: id, type: 'co' });
     }
     const settle = () => {
       for (let guard = 0, changed = true; changed && guard < 500; guard++) {
@@ -288,7 +300,7 @@
     };
     settle();
     const outdeg = (id) => ALL.filter((e) => e.from === id).length;
-    const slack = (id) => (C[id].latest ?? 7) * 10 + (['core', 'tech', 'chem'].includes(C[id].cat) ? 5 : 0) - outdeg(id);
+    const slack = (id) => (C[id].latest ?? 7) * 10 + (['core', 'tech', 'alt'].includes(C[id].cat) ? 5 : 0) - outdeg(id);
     for (let guard = 0; guard < 400; guard++) {
       const load = {};
       for (const [id, i] of Object.entries(pos)) load[i] = (load[i] || 0) + C[id].hrs;
@@ -301,7 +313,7 @@
     }
 
     // 5. Drop empty trailing terms past Spring 4 and assemble the plan in suggested order.
-    const lastNeeded = Math.max(...Object.values(pos), ...prior.map((p) => p.index), ordinal(7));
+    const lastNeeded = Math.max(...Object.values(pos), ...prior.map((p) => p.index), ordinal(lastRegular));
     terms.length = lastNeeded + 1;
     const plan = terms.map(() => []);
     Object.keys(pos).sort((a, b) => (order[a] ?? 999) - (order[b] ?? 999)).forEach((id) => plan[pos[id]].push(id));
