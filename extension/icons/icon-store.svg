@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-16 -16 160 160">
+  <!-- Store-size icon (96px artwork, 16px transparent padding): two course boxes feeding a third, on UT burnt orange. -->
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="#BF5700"/>
+  <g fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round">
+    <path d="M52 40 C68 40 62 64 78 64"/>
+    <path d="M52 88 C68 88 62 64 78 64"/>
+  </g>
+  <g fill="#fff">
+    <rect x="22" y="28" width="32" height="24" rx="7"/>
+    <rect x="22" y="76" width="32" height="24" rx="7"/>
+    <rect x="74" y="52" width="32" height="24" rx="7"/>
+  </g>
+</svg>

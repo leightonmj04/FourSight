@@ -16,8 +16,9 @@
   const MAX_HOURS = 17;
 
   // ------------------------------------------------------------------ text extraction
-  const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-  const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  // pdf.js 3.11.174 ships with the app (lib/pdfjs): Chrome extensions may not load remote code.
+  const PDFJS = 'lib/pdfjs/pdf.min.js';
+  const PDFJS_WORKER = 'lib/pdfjs/pdf.worker.min.js';
 
   function loadPdfJs() {
     if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
@@ -25,7 +26,7 @@
       const s = document.createElement('script');
       s.src = PDFJS;
       s.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER; resolve(window.pdfjsLib); };
-      s.onerror = () => reject(new Error('Could not load the PDF reader. Check your internet connection, or paste the transcript text instead.'));
+      s.onerror = () => reject(new Error('Could not load the PDF reader. Paste the transcript text instead.'));
       document.head.appendChild(s);
     });
   }
@@ -34,7 +35,8 @@
     const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
     if (!isPdf) return await file.text();
     const pdfjs = await loadPdfJs();
-    const doc = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+    // isEvalSupported: false keeps pdf.js within the extension's no-eval security policy.
+    const doc = await pdfjs.getDocument({ data: await file.arrayBuffer(), isEvalSupported: false }).promise;
     const lines = [];
     for (let p = 1; p <= doc.numPages; p++) {
       const content = await (await doc.getPage(p)).getTextContent();

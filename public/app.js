@@ -1651,7 +1651,8 @@
       `<p class="m-sub">${esc(P.degree)}, ${esc(P.dept)}. ${P.hours} hours under the 2026-28 catalog.</p>` +
       `<ul class="pn-notes">${(P.notes || []).map((n) => `<li>${esc(n)}</li>`).join('')}` +
       `<li>Prerequisites come from the 2025-26 course listings, because the 2026-27 listings leave prerequisite text out. ` +
-      `Students may follow any catalog in effect while they were enrolled in Cockrell. Confirm your plan with the Interactive Degree Audit and your department's advising office.</li></ul>` +
+      `Students may follow any catalog in effect while they were enrolled in Cockrell. Confirm your plan with the Interactive Degree Audit and your department's advising office.</li>` +
+      `<li>FourSight is an independent student planning tool. It is not affiliated with or endorsed by The University of Texas at Austin, and it is not an official degree audit.</li></ul>` +
       `<h3 class="pn-h">Sources</h3><ul class="pn-links">${(P.links || []).map((l) => `<li><a href="${l.url}" target="_blank" rel="noopener">${esc(l.label)}</a></li>`).join('')}</ul>`);
   });
 

@@ -1,3 +1,10 @@
+/* Sora (SIL Open Font License, see fonts/Sora-OFL.txt), bundled so the app works offline and as
+   a Chrome extension. One variable-weight file covers the 300 and 800 weights. */
+@font-face {
+  font-family: Sora; font-style: normal; font-weight: 300 800; font-display: swap;
+  src: url(fonts/sora-latin.woff2) format('woff2');
+}
+
 :root {
   --ut: #BF5700;
   --ut-dark: #8F4100;
