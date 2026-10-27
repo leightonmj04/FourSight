@@ -2759,16 +2759,10 @@
       const rows = typeof src === 'string' ? window.Curriculum.rowsFromText(src) : await window.Curriculum.read(src);
       const m = window.Curriculum.parseMinor(rows);
       if (!m.count) throw new Error(`FourSight could not find any courses in ${name}. It looks for course numbers like “ACCT 2301” under headings like “Required Courses” or “Choose two of the following”. If this is a scanned PDF, paste its text instead.`);
-      // The student names the school and the minor before it is added.
-      const detected = m.shortName !== 'Minor' ? m.shortName : '';
-      const school = P.def.school || lastSchool();
+      // The student types the school and the minor's name before it is added.
       openModal(`<h2 id="modalTitle">Which school and minor is this?</h2>` +
         `<p class="m-sub">FourSight found ${m.count} course${m.count === 1 ? '' : 's'} (${m.totalHours} hours) in ${esc(name)}. Your school and the minor\u2019s name label it in your plan.</p>` +
-        detailsForm({
-          kind: 'minor', school, name: detected, modal: 'Add minor',
-          schoolHint: P.def.school ? 'From your plan. Change it if the minor is from a different school.' : school ? 'From your last upload.' : '',
-          nameHint: detected ? 'Read from your file. Change it if it\u2019s wrong.' : '',
-        }));
+        detailsForm({ kind: 'minor', modal: 'Add minor' }));
       wireDetails($('modalBody'), 'minor', (schoolName, minorName) => {
         const { full, short } = minorLabels(minorName);
         S.minor = {
@@ -3057,29 +3051,36 @@
   });
 
   // ---- naming an uploaded major or minor
-  // A plan or minor built from a file must say which school it is from and what it is called. FourSight fills in
-  // what the file states (or the school from the student's plan or last upload); the student confirms or types the
-  // rest before the plan or minor is created.
-  const lastSchool = () => { try { return localStorage.getItem('dp.school') || ''; } catch (_) { return ''; } };
+  // A plan or minor built from a file must say which school it is from and what it is called. The student types
+  // both into blank fields; the plan or minor is created only once both are filled in. (Correcting them later shows
+  // the current values.)
   const tidyLabel = (t) => String(t || '').replace(/[<>"]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
-  function detailsForm({ kind, school, name, schoolHint, nameHint, modal }) {
-    const field = (id, label, value, ph, hint) =>
-      `<label class="dt-field"><span>${label}</span><input id="${id}" maxlength="80" autocomplete="off" required placeholder="${esc(ph)}" value="${esc(value || '')}">` +
-      `${hint ? `<small>${esc(hint)}</small>` : ''}</label>`;
+  function detailsForm({ kind, school = '', name = '', modal }) {
+    const field = (id, label, value) =>
+      `<label class="dt-field"><span>${label}</span><input id="${id}" maxlength="80" autocomplete="off" required value="${esc(value)}"></label>`;
     return `<form class="dt-form" id="dtForm" novalidate>` +
-      field('dtSchool', 'School', school, 'For example, Texas A&M University', schoolHint) +
-      field('dtName', kind === 'minor' ? 'Minor' : 'Major', name, kind === 'minor' ? 'For example, Entrepreneurship' : 'For example, Chemical Engineering', nameHint) +
+      field('dtSchool', 'School', school) +
+      field('dtName', kind === 'minor' ? 'Minor' : 'Major', name) +
       `<p class="ac-error" id="dtErr" hidden></p>` +
       (modal
         ? `<div class="m-actions"><button type="button" class="btn ghost" id="dtCancel">Cancel</button><button type="submit" class="btn primary">${modal}</button></div>`
         : `<div class="wc-actions"><button type="submit" class="btn primary wc-go">Continue</button></div>`) +
       `</form>`;
   }
-  // Both fields are required. The school is remembered for the next upload. `root` holds the form: the welcome
+  // Both fields are required: the submit button stays off until both have text. `root` holds the form: the welcome
   // screen or the dialog.
   function wireDetails(root, kind, done, cancel) {
     const q = (id) => root.querySelector(`#${id}`);
     const schoolIn = q('dtSchool'), nameIn = q('dtName'), err = q('dtErr');
+    const submit = q('dtForm').querySelector('button[type=submit]');
+    const ready = () => {
+      submit.disabled = !schoolIn.value.trim() || !nameIn.value.trim();
+      for (const i of [schoolIn, nameIn]) if (i.value.trim()) i.classList.remove('invalid');
+      if (!submit.disabled) err.hidden = true;
+    };
+    schoolIn.addEventListener('input', ready);
+    nameIn.addEventListener('input', ready);
+    ready();
     ([schoolIn, nameIn].find((i) => !i.value.trim()) || nameIn).focus({ preventScroll: true });
     q('dtForm').addEventListener('submit', (ev) => {
       ev.preventDefault();
@@ -3093,7 +3094,6 @@
         (!school ? schoolIn : nameIn).focus();
         return;
       }
-      try { localStorage.setItem('dp.school', school); } catch (_) { /* ignore */ }
       done(school, name);
     });
     if (q('dtCancel')) q('dtCancel').addEventListener('click', cancel || closeModal);
@@ -3119,14 +3119,8 @@
           fromChart: r.fromChart, supplemented: r.supplemented,
         },
       };
-      // The student names the school and major before the plan is made.
-      const school = r.school || (id === 'mine-ut' ? 'The University of Texas at Austin' : lastSchool());
-      const major = (r.program || '').replace(/,?\s*\b(B\.?S\.?E?|B\.?A\.?|BSE|BBA|BFA|Bachelor of \w+(?: in)?)\b\.?/gi, ' ').replace(/^\s*in\s+/i, '').replace(/\s+/g, ' ').trim();
-      const form = {
-        kind: 'major', school, name: major,
-        schoolHint: r.school ? 'Read from your file. Change it if it\u2019s wrong.' : school ? 'From your last upload. Change it if it\u2019s wrong.' : '',
-        nameHint: major ? 'Read from your file. Change it if it\u2019s wrong.' : '',
-      };
+      // The student types the school and major before the plan is made.
+      const form = { kind: 'major' };
       const finish = (schoolName, majorName) => {
         def.school = schoolName;
         def.program = majorName;
