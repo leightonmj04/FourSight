@@ -3383,14 +3383,13 @@
   });
 
   // ---------------------------------------------------------------- boot
-  // First launch (nothing saved yet) opens the welcome screen over ChE; it is only remembered once the student
-  // picks a starting point.
+  // Until a student has answered the welcome questions once, opening FourSight starts on them, over ChE. A student
+  // who saved a plan before the welcome screen existed (Version 1) sees it too, and can close it to return to that
+  // plan; it is only remembered once they pick a starting point or close it.
   let startProgram = null, started = false;
   try { startProgram = localStorage.getItem('dp.program'); started = !!localStorage.getItem('dp.started'); } catch (_) { /* ignore */ }
-  const firstRun = !startProgram && !started;
-  selectProgram(startProgram || 'che', { remember: !firstRun });
-  if (firstRun) showWelcome({ first: true });
-  else try { localStorage.setItem('dp.started', '1'); } catch (_) { /* ignore */ }
+  selectProgram(startProgram || 'che', { remember: !!startProgram });
+  if (!started) showWelcome({ first: !startProgram });
 
   // Debug handle for testing.
   window.__dp = { importText, revertToSuggested, showWelcome, importCurriculum, startOwn, selectProgram, S, analyze, EDGES, ALL_EDGES, edgeBroken, rectOf, scroller, toggleDone, addSummer, addRegular, removeTerm, lateFrom,
