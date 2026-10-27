@@ -183,8 +183,13 @@
         const joinsCode = !rowNum && (row.some((c) => /^(or|&|and)\s/i.test(c.text.trim())) || under.some((p) => /[/&]$|\bor$/.test(p.text.trim())));
         const midPhrase = under.every((p) => !isNum(p.text)) && under.some((p) => open(p.text) || /\b(and|of|for|to|in|the|with|&)$|[-,/(]$/i.test(p.text.trim()));
         const lower = row.every((c) => /^[a-z(]/.test(c.text.trim()));
-        const continuesTitles = !rowNum && !rowCode && !rowHead && (prev.some((p) => isNum(p.text)) || midPhrase || lower);
-        join = finishesCode || joinsCode || continuesTitles;
+        // A title can mention a course on its next line ("Composition (or ENGL 104 Composition and Rhetoric)"): the line
+        // starts with words, has no hours, and the line above has them.
+        const mentionsOnly = rowCode && row.every((c) => { const m = findCodes(c.text)[0]; return !m || m.index > 0; });
+        const continuesTitles = !rowNum && (!rowCode || mentionsOnly) && !rowHead && (prev.some((p) => isNum(p.text)) || midPhrase || lower);
+        // A list that ends in a comma goes on under it ("CHE 253K, M 427J," / "PHY 303L"), away from the first column.
+        const continuesList = under.some((p) => /,$/.test(p.text.trim())) && row[0].x > prev[0].x + 6;
+        join = finishesCode || joinsCode || continuesTitles || continuesList;
       }
       if (join) {
         row.forEach((c, i) => {
@@ -424,6 +429,12 @@
       // "E 316L/M/N/P": the other letters of a numbered family are part of the number too.
       const family = /^(\/[A-Z])+(?![A-Za-z])/.exec(text.slice(at));
       if (family) { toks[toks.length - 1].code += family[0]; at += family[0].length; }
+      // "GOV 306C or 312L/P", "M E 310T, 316T": a bare number after "or" or a comma is another course in the same subject.
+      for (let orNum; c.subj && !mention && (orNum = /^\s*(?:,|or)\s+(\d{3,4}[A-Z]{0,2}(?:\/[A-Z])*)(?![A-Za-z0-9])/i.exec(text.slice(at)));) {
+        toks.push({ type: 'conn', and: false, x: cell.x + at * CHAR_W });
+        toks.push({ type: 'code', code: `${c.subj} ${orNum[1]}`, subj: c.subj, num: orNum[1], mention: false, x: cell.x + at * CHAR_W });
+        at += orNum[0].length;
+      }
     });
     pushText(text.slice(at), at);
     return toks;
@@ -532,6 +543,8 @@
       const sink = group ? group.options : items;
       let cur = null, kw = null, connector = null;
       for (const { c: cell, toks } of cellToks) {
+        // Side-by-side terms: a cell in the next term's column starts that term's course ("VAPA" after "CHE 354 ... 3").
+        if (cur && !group && columns && columns.length > 1 && columnFor(cell.x).col !== cur.col) cur = null;
         // A prerequisite keyword reaches the courses after it in its cell, or in the next cell when it stands
         // alone ("Prerequisite:" | "MATH 2413"); the next course cell after that is a new course.
         if (kw && (kw.used || columnFor(cell.x).col !== kw.col)) kw = null;
@@ -565,11 +578,13 @@
           connector = null;
           if (kw) continue; // words inside a prerequisite note ("and", "with a grade of C")
           if (cur && !cur.title && cur.hrs == null && !HEADER_WORD_RE.test(text)) { cur.title = text; continue; }
+          // "SBS Core | Social and Behavioral Science | 3": a second name in a name-only course's row describes it.
+          if (cur && cur.nameOnly && cur.row === rowIndex && cur.cellX !== cell.x && !cur.subtitle && cur.hrs == null && !HEADER_WORD_RE.test(text)) { cur.subtitle = text; continue; }
           if (JUNK_RE.test(text) && !NAME_ONLY_RE.test(text)) { cur = null; continue; }
           // A name-only course inside a term: "Technical Elective   3", "University Core Curriculum   3".
           const words = text.split(/\s+/).length;
           if (term != null && words <= 8 && !HEADER_WORD_RE.test(text) && (NAME_ONLY_RE.test(text) || (cur === null && /^[A-Z]/.test(text)))) {
-            cur = { code: '', alts: [], title: text, hrs: null, pre: [], co: [], term, col, row: rowIndex, nameOnly: true, box: !!cells.box };
+            cur = { code: '', alts: [], title: text, hrs: null, pre: [], co: [], term, col, row: rowIndex, cellX: cell.x, nameOnly: true, box: !!cells.box };
             sink.push(cur);
             if (sink === items) lastIn[col] = cur;
             continue;
@@ -652,7 +667,7 @@
       let title = tidyTitle(stripLinks(it.title));
       if (it.alts.length) title = `${title.replace(/\s+or\s+.*$/i, '')}${title ? ' ' : ''}(or ${it.alts.map((a) => tidyTitle(stripLinks(a))).join(', ')})`;
       const label = it.code || title;
-      courses[id] = { code: label, title: it.code ? titleCase(title) : '', hrs: it.hrs, cat: category(it) };
+      courses[id] = { code: label, title: it.code ? titleCase(title) : it.subtitle ? tidyTitle(stripLinks(it.subtitle)) : '', hrs: it.hrs, cat: category(it) };
       const aliases = [...it.alts.filter((a) => findCodes(a).length)];
       if (aliases.length) courses[id].aliases = aliases;
       if (it.assumed) courses[id].note = 'The credit hours were not in the file, so FourSight assumed 3. Click Edit to change them.';
@@ -1027,19 +1042,26 @@
   async function readFlowchart(src) {
     const relations = [];
     const codes = new Set();
+    const drawn = new Set(); // relations read from lines and shapes, not words
     if (typeof src !== 'string' && isPdf(src)) {
       const pages = await window.Transcript.pdfPages(src, { shapes: true });
       for (const pg of pages) {
-        relations.push(...chartRelations(pg, codes));
-        relations.push(...textRelations(joinWrapped(buildRows(dropFootnoteMarks(pg.items))), codes));
+        for (const r of chartRelations(pg, codes)) { drawn.add(r); relations.push(r); }
+        // Words in the page margins are running headers and footers, not about any course.
+        relations.push(...textRelations(joinWrapped(buildRows(dropFootnoteMarks(pg.items.filter((it) => !inMargin(it, pg))))), codes));
       }
     } else {
       const rows = typeof src === 'string' ? rowsFromText(src) : await readRows(src);
       relations.push(...textRelations(joinWrapped(rows), codes));
     }
+    // A pair of courses the file names in words ("Co-requisites: CHE 210") takes its kind and direction from the
+    // words, not from the line drawn between their boxes.
+    const pair = (r) => [normCode(r.from), normCode(r.to)].sort().join('|');
+    const said = new Set(relations.filter((r) => r.from && r.to && !drawn.has(r)).map(pair));
     const seen = new Set();
     const out = relations.filter((r) => {
       if (!r.from || !r.to || normCode(r.from) === normCode(r.to)) return false;
+      if (drawn.has(r) && said.has(pair(r))) return false;
       const key = `${normCode(r.from)}>${normCode(r.to)}`;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -1069,6 +1091,9 @@
       }
       // A line that starts with a course number is about that course.
       if (codes[0].index <= 4 && /^[\s•·*\-–\d.)]*$/.test(text.slice(0, codes[0].index))) cur = codes[0].code;
+      // In a table with a Prerequisites column each row is about its own first cell; a row that starts with a name
+      // ("Technical Elective") is not about the course above it.
+      else if (preCols.length) cur = null;
       if (!cur) continue;
       // Keywords: each reaches the course numbers after it, up to the next keyword.
       const kws = [];

@@ -27,11 +27,10 @@ Not at UT? Upload your school's degree plan (PDF, text or CSV) and FourSight lay
 • Hover or pin a course to trace its prerequisite chain: the courses it needs and the courses it unlocks.
 • Warnings for courses past their on-time limit or placed in a term they aren't offered.
 • A live degree audit shows hours and courses completed in each requirement area.
-• Import your UT transcript (PDF or pasted text) to check off completed courses and reschedule the rest.
 • Check off a whole semester at once, recolor course types, and add your own courses with any course number.
 • Add, edit or delete courses, add summer or extra terms, and reset to the suggested plan at any time.
 
-Private by design: FourSight runs entirely in your browser. Your plan is saved only on your computer, and your transcript, curriculum, flowchart and minor files are read on your device and never uploaded. FourSight needs no special permissions and collects no data.
+Private by design: FourSight runs entirely in your browser. Your plan is saved only on your computer, and your curriculum, flowchart and minor files are read on your device and never uploaded. FourSight needs no special permissions and collects no data.
 
 FourSight is an independent student planning tool. It is not affiliated with or endorsed by The University of Texas at Austin, and it is not an official degree audit. Always confirm your plan with the Interactive Degree Audit and your department's advising office.
 ```
@@ -45,7 +44,7 @@ FourSight is an independent student planning tool. It is not affiliated with or 
 | Field | File |
 | --- | --- |
 | Store icon (128x128) | `extension/icons/icon-128.png` |
-| Screenshots (1280x800) | `screenshot-1-flowchart.png`, `screenshot-2-mechanical.png`, `screenshot-3-conflicts.png`, `screenshot-4-transcript.png` |
+| Screenshots (1280x800) | `screenshot-1-flowchart.png`, `screenshot-2-mechanical.png`, `screenshot-3-conflicts.png` (leave out `screenshot-4-transcript.png` while transcript upload is hidden) |
 | Small promo tile (440x280) | `promo-small-440x280.png` |
 
 The marquee promo tile (1400x560) is optional and not included.
@@ -59,7 +58,7 @@ FourSight is a degree planner: it shows a UT Austin engineering student's four-y
 
 **Are you using remote code?** No, I am not using remote code. (pdf.js and the Sora font are bundled in the package.)
 
-**Data usage:** leave every data type unchecked. FourSight collects and transmits no user data: plans are stored in the browser's local storage on the student's own computer, and transcripts, curriculum, flowchart and minor files are read in the browser and never sent anywhere.
+**Data usage:** leave every data type unchecked. FourSight collects and transmits no user data: plans are stored in the browser's local storage on the student's own computer, and curriculum, flowchart and minor files are read in the browser and never sent anywhere.
 
 Then tick all three certifications:
 - I do not sell or transfer user data to third parties, outside of the approved use cases

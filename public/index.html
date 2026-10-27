@@ -54,6 +54,23 @@
       <div class="toolbar-right">
         <div class="stat"><span id="totalHours">0</span><small>hours planned</small></div>
         <button class="status" id="statusBtn"></button>
+        <div class="dlmenu" id="dlMenu">
+          <button class="btn" id="downloadBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="dlPop">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+            Download PDF
+            <svg class="dl-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+          </button>
+          <div class="dl-pop" id="dlPop" role="menu" aria-label="Download PDF">
+            <button class="dl-item" role="menuitem" id="planPdfBtn">
+              <span class="dl-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M12 4v16M4 9.5h16M4 15h16"/></svg></span>
+              <span class="dl-copy"><strong>Four-year plan</strong><span>Every semester with its courses and hours. Upload it to FourSight later as your curriculum.</span></span>
+            </button>
+            <button class="dl-item" role="menuitem" id="chainsPdfBtn">
+              <span class="dl-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3.5" width="7" height="5" rx="1.4"/><rect x="14" y="15.5" width="7" height="5" rx="1.4"/><path d="M6.5 8.5v5a2 2 0 0 0 2 2H14"/></svg></span>
+              <span class="dl-copy"><strong>Prerequisite chains</strong><span>A flowchart and a course-by-course list of what each course needs. Upload it later as your flowchart.</span></span>
+            </button>
+          </div>
+        </div>
         <button class="btn" id="resetBtn">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
           <span id="resetLabel">Reset to suggested</span>
@@ -169,6 +186,7 @@
   <script src="programs/pe.js"></script>
   <script src="transcript.js"></script>
   <script src="curriculum.js"></script>
+  <script src="pdfdoc.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

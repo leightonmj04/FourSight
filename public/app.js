@@ -1227,7 +1227,7 @@
     const keep = (id, text) => `<label class="rs-keep"><input type="checkbox" id="${id}" checked><span>${text}</span></label>`;
     openModal(`<h2 id="modalTitle">${P.own ? `Reset to ${esc(P.def.source)}?` : 'Reset to the suggested plan?'}</h2>` +
       `<p class="m-sub">Every course goes back to ${P.own ? 'the semester the file put it in' : 'its suggested semester'} and extra terms are removed. ` +
-      `Edited and deleted courses are restored, and anything from an imported transcript is cleared.` +
+      `Edited and deleted courses are restored${S.transcript ? ', and anything from an imported transcript is cleared' : ''}.` +
       `${S.minor ? ` The ${esc(S.minor.name)}${minorCards ? ` and the ${minorCards} course${minorCards === 1 ? '' : 's'} added for it` : ''} ${minorCards ? 'are' : 'is'} removed.` : ''}</p>` +
       (marked || added ? `<div class="rs-keeps">` +
         (marked ? keep('rsKeepDone', `Keep my ${marked} completed course${marked === 1 ? '' : 's'} checked off`) : '') +
@@ -1623,9 +1623,15 @@
   // ---------------------------------------------------------------- transcript import
   const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 
+  // Transcript upload is hidden for now (2026-10-27). Everything behind it still works: set this to true to bring back
+  // the dock's Upload transcript and Paste text buttons on UT plans and dropping a transcript on the dock.
+  const TRANSCRIPT_UPLOAD = false;
+
   function renderDock() {
     const t = S.transcript;
     const main = $('dockMain');
+    // With transcript upload hidden, a UT plan's dock only carries the drag-and-drop hint.
+    $('dock').classList.toggle('no-main', !P.own && !t && !TRANSCRIPT_UPLOAD);
     // Own plans fill from a curriculum file instead of a UT transcript.
     if (P.own) {
       const src = P.def.source;
@@ -1642,6 +1648,10 @@
       $('dockPaste').addEventListener('click', () => confirmReplaceOwn(() => showCurriculumPaste(P.id)));
       return;
     }
+    if (!t && !TRANSCRIPT_UPLOAD) {
+      main.innerHTML = '';
+      return;
+    }
     if (!t) {
       main.innerHTML =
         `<div class="dock-icon">${ICON.doc}</div>` +
@@ -1656,12 +1666,12 @@
         `<div class="dock-text"><strong>Built from ${esc(t.name)}</strong>` +
         `<span>${n('applied')} applied, ${n('credit')} AP credit, ${n('progress')} in progress, ${n('ignored')} not applicable</span></div>` +
         `<div class="dock-actions"><button class="btn" id="dockDetails">View details</button>` +
-        `<button class="btn" id="dockUpload">${ICON.upload}Upload another</button>` +
+        (TRANSCRIPT_UPLOAD ? `<button class="btn" id="dockUpload">${ICON.upload}Upload another</button>` : '') +
         `<button class="btn ghost" id="dockRevert">Revert to suggested</button></div>`;
       $('dockDetails').addEventListener('click', showReport);
       $('dockRevert').addEventListener('click', confirmReset);
     }
-    $('dockUpload').addEventListener('click', () => $('transcriptFile').click());
+    if ($('dockUpload')) $('dockUpload').addEventListener('click', () => $('transcriptFile').click());
     if ($('dockPaste')) $('dockPaste').addEventListener('click', showPaste);
   }
 
@@ -1671,13 +1681,13 @@
     if (file) await importFile(file);
   });
   // Dropping a file anywhere on the dock imports it too.
-  $('dock').addEventListener('dragover', (ev) => { ev.preventDefault(); $('dock').classList.add('drop'); });
+  $('dock').addEventListener('dragover', (ev) => { ev.preventDefault(); if (P.own || TRANSCRIPT_UPLOAD) $('dock').classList.add('drop'); });
   $('dock').addEventListener('dragleave', () => $('dock').classList.remove('drop'));
   $('dock').addEventListener('drop', async (ev) => {
     ev.preventDefault(); $('dock').classList.remove('drop');
     const file = ev.dataTransfer.files[0];
     if (file && P.own) confirmReplaceOwn(() => importCurriculum(file, P.id));
-    else if (file) await importFile(file);
+    else if (file && TRANSCRIPT_UPLOAD) await importFile(file);
   });
   // A new curriculum file replaces an own plan's courses; ask first once it has any.
   function confirmReplaceOwn(then) {
@@ -3227,7 +3237,9 @@
       const ref = from || `EXT_${norm(r.from)}`;
       const c = courses[to];
       if ([...(c.pre || []), ...(c.co || [])].flat().includes(ref)) { already++; continue; }
-      if (from && needs(from, to)) { already++; continue; }
+      // Co-requisites can name each other (a lecture and its lab); only a chain that runs the other way blocks a link.
+      const mutual = type === 'co' && from && (courses[from].co || []).flat().includes(to);
+      if (from && !mutual && needs(from, to)) { already++; continue; }
       if (!from) { (def.prior ||= {})[ref] = `${r.from}: not in this plan`; outside++; }
       (c[type === 'co' ? 'co' : 'pre'] ||= []).push(ref);
       added++;
@@ -3382,6 +3394,455 @@
     askReplace(id, () => importCurriculum(file, id));
   });
 
+  // ---------------------------------------------------------------- PDF downloads
+  // Two downloads, built on this device (pdfdoc.js), that FourSight can read back:
+  //   four-year plan        the plan laid out like a catalog's suggested arrangement (each year's semesters side by
+  //                         side, a total under each, the program total at the end); uploading it as a curriculum
+  //                         rebuilds the plan
+  //   prerequisite chains   a flowchart (semesters as columns, an arrow from each prerequisite) and a course-by-course
+  //                         table with Prerequisites and Co-requisites columns; uploading it as the prerequisite
+  //                         flowchart rebuilds the chains
+  const PDF_INK = '#1F2328', PDF_SOFT = '#4B5563', PDF_MUTED = '#6B7280', PDF_LINE = '#E4E0D8', PDF_HEAD = '#F4F1EC', PDF_ACCENT = '#BF5700';
+  const YEAR_WORDS = ['', 'First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth'];
+  const fmtHrs = (h) => String(Math.round((+h || 0) * 10) / 10);
+  const pdfColor = (cat) => colorOf(cat) || '#6B7280';
+  const pdfTint = (cat) => {
+    const c = pdfColor(cat);
+    return c === DEFAULT_COLORS[cat] ? DEFAULT_TINTS[cat] : hexOf(rgbOf(c).map((v) => v * 0.11 + 255 * 0.89));
+  };
+  const pdfDate = () => new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  function exportInfo() {
+    const ut = 'The University of Texas at Austin';
+    if (!P.own) return { school: ut, program: programName(), detail: `${P.dept} · ${P.degree}`, minor: S.minor ? S.minor.name : '' };
+    return { school: P.def.school || (P.ut ? ut : ''), program: P.def.program || 'My degree plan', detail: '', minor: S.minor ? S.minor.name : '' };
+  }
+  // A course as both PDFs show it; a slot filled from a transcript shows the course that filled it.
+  function exportRow(id) {
+    const c = C[id], taken = S.taken[id];
+    return { id, code: taken || (c.title ? c.code : ''), title: c.title || c.code, hrs: +c.hrs || 0, cat: c.cat, done: S.done.has(id) };
+  }
+  const scheduledTerms = () => S.terms.map((t, i) => i).filter((i) => S.terms[i].kind !== 'credit');
+  // Page footers sit in the bottom margin, which FourSight skips when it reads the file back.
+  function pdfFooters(doc, note, margin) {
+    doc.pages.forEach((pg, i) => {
+      pg.text(note, margin, pg.h - 16, { size: 6.5, color: PDF_MUTED });
+      pg.text(`Page ${i + 1} of ${doc.pages.length}`, pg.w - margin, pg.h - 16, { size: 6.5, color: PDF_MUTED, align: 'right' });
+    });
+  }
+  const checkMark = (pg, x, y) => pg.line([[x - 3, y], [x - 1, y + 2.4], [x + 3, y - 2.6]], { stroke: '#2C9A57', lw: 1.2 });
+
+  function planPdf() {
+    const info = exportInfo();
+    const D = new window.PdfDoc({ title: `${info.program}: four-year plan` });
+    const PW = 612, PH = 792, M = 42, CW = PW - 2 * M, GAP = 28, ROWPAD = 5, LH = 10, FLOOR = PH - 50;
+    const terms = scheduledTerms();
+    const quarters = S.terms.some((t) => t.kind === 'winter');
+    const HEAD = { fall: quarters ? 'Fall Quarter' : 'Fall Semester', winter: 'Winter Quarter', spring: quarters ? 'Spring Quarter' : 'Spring Semester', summer: 'Summer Session' };
+    const sumHrs = (ids) => ids.reduce((n, id) => n + (+C[id].hrs || 0), 0);
+    const total = terms.reduce((n, i) => n + sumHrs(S.plan[i]), 0);
+    const all = terms.flatMap((i) => S.plan[i]).map(exportRow);
+    let pg, y;
+    const newPage = () => {
+      pg = D.page(PW, PH);
+      if (D.pages.length > 1) pg.text(`${info.program} · four-year plan, continued`, M, 32, { size: 7.5, color: PDF_MUTED });
+      y = 60;
+    };
+    newPage();
+    pg.text('FOUR-YEAR PLAN', M, 58, { size: 7.5, bold: true, color: PDF_ACCENT });
+    pg.text(`Saved ${pdfDate()}`, PW - M, 58, { size: 7.5, color: PDF_MUTED, align: 'right' });
+    const title = D.wrap(info.program, CW, 20, true, 2);
+    title.forEach((l, i) => pg.text(l, M, 82 + i * 23, { size: 20, bold: true, color: PDF_INK }));
+    y = 82 + (title.length - 1) * 23 + 17;
+    const sub = [info.school, info.detail].filter(Boolean).join(' · ');
+    if (sub) { pg.text(D.fit(sub, CW, 9.5), M, y, { size: 9.5, color: PDF_SOFT }); y += 14; }
+    if (info.minor) { pg.text(D.fit(`With the ${info.minor}`, CW, 8.5), M, y, { size: 8.5, color: PDF_MUTED }); y += 12; }
+    y += 2;
+    pg.line([[M, y], [PW - M, y]], { stroke: PDF_LINE, lw: 1 });
+    y += 22;
+
+    // A band is a row of term tables whose lines up across tables (row k of each shares one height).
+    const codeW = Math.min(96, Math.max(48, ...all.map((r) => D.width(r.code, 8.5, true)))) + 10;
+    // A code too long for its column ("M E 310T, 316T or CH 353") breaks after a comma or before "or".
+    const codeLines = (code) => {
+      if (D.width(code, 8.5, true) <= codeW - 8) return [code];
+      const lines = [];
+      for (const piece of code.split(/(?<=,)\s+|\s+(?=or\s)/)) {
+        const last = lines[lines.length - 1];
+        if (last && D.width(`${last} ${piece}`, 8.5, true) <= codeW - 8) lines[lines.length - 1] = `${last} ${piece}`; else lines.push(piece);
+      }
+      return lines;
+    };
+    const band = (idxs, per) => {
+      const w = (CW - GAP * (per - 1)) / per;
+      const titleW = w - 8 - codeW - 36;
+      const cols = idxs.map((i) => S.plan[i].map((id) => { const r = exportRow(id); return Object.assign(r, { lines: D.wrap((C[id].title || C[id].code) + (C[id].optional ? ' (optional)' : ''), titleW, 8.5, false, 2), codes: r.code ? codeLines(r.code) : [] }); }));
+      const n = Math.max(0, ...cols.map((c) => c.length));
+      const heights = Array.from({ length: n }, (_, k) => 2 * ROWPAD + 8 + (Math.max(1, ...cols.map((c) => (c[k] ? Math.max(c[k].lines.length, c[k].codes.length) : 1))) - 1) * LH);
+      return { idxs, cols, w, heights, h: 20 + 15 + heights.reduce((a, b) => a + b, 0) + 22 };
+    };
+    const drawBand = (b) => {
+      b.idxs.forEach((ti, k) => {
+        const x = M + k * (b.w + GAP), t = S.terms[ti], rows = b.cols[k];
+        pg.rect(x, y, b.w, 20, { fill: PDF_HEAD });
+        pg.text(HEAD[t.kind], x + 8, y + 13.5, { size: 9.5, bold: true, color: PDF_INK });
+        let ry = y + 20;
+        pg.text('Course', x + 8, ry + 10.5, { size: 6.5, bold: true, color: PDF_MUTED });
+        pg.text('Title', x + 8 + codeW, ry + 10.5, { size: 6.5, bold: true, color: PDF_MUTED });
+        pg.text('Hours', x + b.w - 10, ry + 10.5, { size: 6.5, bold: true, color: PDF_MUTED, align: 'right' });
+        ry += 15;
+        pg.line([[x, ry], [x + b.w, ry]], { stroke: PDF_LINE, lw: 0.6 });
+        b.heights.forEach((rh, r) => {
+          const row = rows[r];
+          if (row) {
+            const base = ry + ROWPAD + 7.5;
+            pg.rect(x, ry + 3, 2.5, rh - 6, { fill: pdfColor(row.cat) });
+            row.codes.forEach((l, j) => pg.text(l, x + 8, base + j * LH, { size: 8.5, bold: true, color: PDF_INK }));
+            row.lines.forEach((l, j) => pg.text(l, x + 8 + codeW, base + j * LH, { size: 8.5, color: row.code ? PDF_SOFT : PDF_INK }));
+            pg.text(fmtHrs(row.hrs), x + b.w - 10, base, { size: 8.5, color: PDF_INK, align: 'right' });
+            if (row.done) checkMark(pg, x + b.w - 27, base - 3);
+            pg.line([[x, ry + rh], [x + b.w, ry + rh]], { stroke: PDF_LINE, lw: 0.5 });
+          }
+          ry += rh;
+        });
+        const label = t.kind === 'summer' ? 'Summer total' : quarters ? 'Quarter total' : 'Semester total';
+        pg.text(label, x + 8, ry + 14, { size: 8, bold: true, color: PDF_MUTED });
+        pg.text(fmtHrs(sumHrs(S.plan[ti])), x + b.w - 10, ry + 14, { size: 8.5, bold: true, color: PDF_INK, align: 'right' });
+      });
+      y += b.h + 10;
+    };
+    const years = [...new Set(terms.map((i) => S.terms[i].year))].sort((a, b) => a - b);
+    for (const yr of years) {
+      const idx = terms.filter((i) => S.terms[i].year === yr);
+      const reg = idx.filter((i) => S.terms[i].kind !== 'summer'), summer = idx.filter((i) => S.terms[i].kind === 'summer');
+      const per = Math.max(2, reg.length);
+      const bands = [reg, summer].filter((b) => b.length).map((b) => band(b, per));
+      if (y + 22 + bands.reduce((n, b) => n + b.h + 10, 0) > FLOOR && y > 140) newPage();
+      pg.text(YEAR_WORDS[yr] ? `${YEAR_WORDS[yr]} Year` : `Year ${yr}`, M, y + 10, { size: 11, bold: true, color: PDF_ACCENT });
+      y += 20;
+      for (const b of bands) { if (y + b.h > FLOOR) newPage(); drawBand(b); }
+      y += 6;
+    }
+    if (y + 30 > FLOOR) newPage();
+    pg.rect(M, y, CW, 26, { fill: PDF_HEAD });
+    pg.text('Total program hours', M + 10, y + 17, { size: 10, bold: true, color: PDF_INK });
+    pg.text(fmtHrs(total), PW - M - 10, y + 17, { size: 10, bold: true, color: PDF_INK, align: 'right' });
+    y += 26;
+    const optional = terms.flatMap((i) => S.plan[i]).filter((id) => C[id].optional);
+    if (optional.length) {
+      const h = sumHrs(optional);
+      pg.text(`Includes ${fmtHrs(h)} hour${h === 1 ? '' : 's'} of optional courses: ${optional.map((id) => exportRow(id).code || C[id].code).join(', ')}.`, M + 10, y + 14, { size: 7.5, color: PDF_MUTED });
+      y += 14;
+    }
+    if (all.some((r) => r.done)) {
+      checkMark(pg, M + 4, y + 13);
+      pg.text('marks a course you have completed', M + 11, y + 15.5, { size: 7.5, color: PDF_MUTED });
+      y += 16;
+    }
+    // Credit by exam is already earned, so it sits outside the semesters.
+    const ci = S.terms.findIndex((t) => t.kind === 'credit');
+    if (ci >= 0 && S.plan[ci].length) {
+      const rows = S.plan[ci].map(exportRow);
+      if (y + 40 + rows.length * 15 > FLOOR) newPage();
+      y += 18;
+      pg.text('Credit already earned (AP and credit by exam)', M, y, { size: 9.5, bold: true, color: PDF_INK });
+      y += 6;
+      for (const r of rows) {
+        y += 15;
+        if (r.code) pg.text(r.code, M + 8, y, { size: 8.5, bold: true, color: PDF_INK });
+        pg.text(D.fit(r.title, CW - codeW - 60, 8.5), M + 8 + codeW, y, { size: 8.5, color: PDF_SOFT });
+        pg.text(fmtHrs(r.hrs), PW - M - 10, y, { size: 8.5, color: PDF_INK, align: 'right' });
+      }
+    }
+    pdfFooters(D, 'Made with FourSight. Upload this PDF to FourSight as a curriculum to rebuild this plan.', M);
+    return D;
+  }
+
+  function chainsPdf() {
+    const info = exportInfo();
+    const D = new window.PdfDoc({ title: `${info.program}: prerequisite chains` });
+    const PW = 792, PH = 612, M = 32, LINE = '#8F959E', BROKEN = '#D93025';
+    const cols = S.terms.map((t, i) => ({ t, i, ids: S.plan[i] })).filter((c) => c.t.kind !== 'credit' || c.ids.length);
+    const at = new Map();
+    cols.forEach((c, k) => c.ids.forEach((id, r) => at.set(id, { k, r })));
+    const rows = new Map([...at.keys()].map((id) => [id, exportRow(id)]));
+    // What a course is called in both PDFs; prerequisites outside the plan by their course number.
+    const lab = (id) => {
+      // A slot with options ("M E 310T, 316T or CH 353") goes by its first course number in lists.
+      if (C[id]) { const l = rows.has(id) ? rows.get(id).code || rows.get(id).title : C[id].code; const m = window.Curriculum.findCodes(l); return m.length > 1 ? m[0].code : l; }
+      const name = String(OUTSIDE[id] || (P.prior && P.prior[id]) || id).split(':')[0];
+      const code = window.Curriculum.findCodes(name)[0];
+      return code ? code.code : name;
+    };
+    const inPlan = ALL_EDGES.filter((e) => at.has(e.from) && at.has(e.to));
+
+    // ---- page 1: the flowchart
+    let pg = D.page(PW, PH);
+    pg.text('PREREQUISITE CHAINS', M, 42, { size: 7.5, bold: true, color: PDF_ACCENT });
+    pg.text(D.fit(info.program, 430, 16, true), M, 62, { size: 16, bold: true, color: PDF_INK });
+    const sub = [info.school, `${at.size} courses`, `${inPlan.length} prerequisite links`].filter(Boolean).join(' · ');
+    pg.text(D.fit(sub, 430, 8.5), M, 77, { size: 8.5, color: PDF_SOFT });
+
+    const n = Math.max(1, cols.length), colW = (PW - 2 * M) / n;
+    const gapX = Math.max(14, Math.min(26, colW * 0.24)), boxW = colW - gapX;
+    const TOP = 100, HEADH = 26, BOTTOM = PH - 38;
+    const maxN = Math.max(1, ...cols.map((c) => c.ids.length));
+    let boxH = 38, gapY = 10;
+    const avail = BOTTOM - TOP - HEADH;
+    if (maxN * (boxH + gapY) - gapY > avail) { gapY = 6; boxH = Math.max(18, (avail + gapY) / maxN - gapY); }
+    // One type size for every course number, so the chart reads them all as course boxes.
+    const hrsText = (r) => `${fmtHrs(r.hrs)} hr`;
+    // Sized by each course's first number; a longer list of options is shortened in its box (the table has it all).
+    const firstCode = (code) => (window.Curriculum.findCodes(code)[0] || { code }).code;
+    const fits = (size, withHrs) => [...rows.values()].every((r) => !r.code || D.width(firstCode(r.code), size, true) + (withHrs ? D.width(hrsText(r), 5.8) + 4 : 0) <= boxW - 9);
+    let cs = 8;
+    while (cs > 5.5 && !fits(cs, true)) cs -= 0.25;
+    const showHrs = fits(cs, true);
+    if (!showHrs) { cs = 8; while (cs > 5.5 && !fits(cs, false)) cs -= 0.25; }
+    const titleRoom = Math.max(0, Math.floor((boxH - 9 - cs) / 7.2));
+    const box = (id) => { const { k, r } = at.get(id); return { x: M + k * colW + gapX / 2, y: TOP + HEADH + r * (boxH + gapY), w: boxW, h: boxH }; };
+
+    // Year bands and semester headings.
+    const yearsOf = [...new Set(cols.map((c) => c.t.year))];
+    yearsOf.forEach((yr, j) => {
+      const ks = cols.map((c, k) => (c.t.year === yr ? k : -1)).filter((k) => k >= 0);
+      if (j % 2 === 0) pg.rect(M + ks[0] * colW + 2, TOP - 4, (ks[ks.length - 1] - ks[0] + 1) * colW - 4, BOTTOM - TOP + 10, { fill: '#F8F6F2' });
+    });
+    cols.forEach((c, k) => {
+      const cx = M + k * colW + colW / 2;
+      pg.text(D.fit(c.t.kind === 'credit' ? 'AP Credit' : termName(c.t), colW - 4, 8.5, true), cx, TOP + 9, { size: 8.5, bold: true, color: PDF_INK, align: 'center' });
+      pg.text(`${fmtHrs(c.ids.reduce((s, id) => s + (+C[id].hrs || 0), 0))} hrs`, cx, TOP + 19, { size: 6.5, color: PDF_MUTED, align: 'center' });
+    });
+
+    // Lines: a prerequisite leaves the right side of its box and ends in an arrow at the left side of the course
+    // that needs it. A co-requisite in the same semester is a dashed loop on the right; a link the plan has out of
+    // order is red. Each line gets its own spot on a box's side, ordered by where the other box is.
+    const links = EDGES.filter((e) => at.has(e.from) && at.has(e.to)).map((e) => {
+      const a = at.get(e.from), b = at.get(e.to);
+      const kind = b.k > a.k ? 'fwd' : b.k === a.k ? 'same' : 'back';
+      return { e, kind, co: e.type === 'co', broken: kind === 'back' || (kind === 'same' && e.type === 'pre') };
+    });
+    const sides = new Map();
+    const attach = (id, side, link, end, other) => {
+      if (!sides.has(id)) sides.set(id, { L: [], R: [] });
+      sides.get(id)[side].push({ link, end, other });
+    };
+    for (const l of links) {
+      const { from, to } = l.e;
+      if (l.kind === 'fwd') { attach(from, 'R', l, 'y0', to); attach(to, 'L', l, 'y1', from); }
+      else if (l.kind === 'same') { attach(from, 'R', l, 'y0', to); attach(to, 'R', l, 'y1', from); }
+      else { attach(from, 'L', l, 'y0', to); attach(to, 'R', l, 'y1', from); }
+    }
+    for (const [id, s] of sides) {
+      const b = box(id);
+      for (const list of [s.L, s.R]) {
+        list.sort((p, q) => box(p.other).y - box(q.other).y || at.get(p.other).k - at.get(q.other).k);
+        list.forEach((a, j) => { a.link[a.end] = b.y + (b.h * (j + 1)) / (list.length + 1); });
+      }
+    }
+    const heads = [];
+    for (const l of links) {
+      const A = box(l.e.from), B = box(l.e.to);
+      const color = l.broken ? BROKEN : LINE;
+      const opts = { stroke: color, lw: 0.75, dash: l.co ? [2.4, 1.8] : null };
+      if (l.kind === 'fwd') {
+        const p0 = [A.x + A.w, l.y0], p1 = [B.x - 4.6, l.y1], dx = (p1[0] - p0[0]) * 0.5;
+        pg.curve(p0, [p0[0] + dx, p0[1]], [p1[0] - dx, p1[1]], p1, opts);
+        heads.push([B.x, l.y1, 1, color]);
+      } else if (l.kind === 'same') {
+        const p0 = [A.x + A.w, l.y0], p1 = [B.x + B.w + (l.broken ? 4.6 : 0), l.y1], out = Math.min(gapX * 0.6, 14);
+        pg.curve(p0, [p0[0] + out, p0[1]], [p1[0] + out, p1[1]], p1, opts);
+        if (l.broken) heads.push([B.x + B.w, l.y1, -1, color]);
+      } else {
+        const p0 = [A.x, l.y0], p1 = [B.x + B.w + 4.6, l.y1];
+        pg.curve(p0, [p0[0] - 30, p0[1]], [p1[0] + 30, p1[1]], p1, opts);
+        heads.push([B.x + B.w, l.y1, -1, color]);
+      }
+    }
+    for (const id of at.keys()) {
+      const b = box(id), r = rows.get(id), color = pdfColor(r.cat);
+      pg.rect(b.x, b.y, b.w, b.h, { fill: pdfTint(r.cat), stroke: color, lw: 0.6 });
+      pg.rect(b.x, b.y, 2.6, b.h, { fill: color });
+      const base = b.y + 4.5 + cs * 0.78;
+      if (r.code) {
+        // A course number stays on one line; a name in its place ("Engineering Elective") may take two.
+        const room = b.w - 9 - (showHrs ? D.width(hrsText(r), 5.8) + 4 : 0);
+        const heads = window.Curriculum.findCodes(r.code).length ? [D.fit(r.code, room, cs, true)] : D.wrap(r.code, room, cs, true, Math.min(2, titleRoom));
+        heads.forEach((l, j) => pg.text(l, b.x + 6, base + j * (cs + 1.5), { size: cs, bold: true, color: PDF_INK }));
+        if (showHrs) pg.text(hrsText(r), b.x + b.w - 4, base, { size: 5.8, color: PDF_MUTED, align: 'right' });
+        // A title that names a course stays on one line, so no line of it is a course number alone.
+        const t = C[id].title || '', top = base + (heads.length - 1) * (cs + 1.5), fit = titleRoom - (heads.length - 1);
+        const lines = window.Curriculum.findCodes(t).length ? [D.fit(t, b.w - 10, 6)] : D.wrap(t, b.w - 10, 6, false, Math.max(0, fit));
+        lines.slice(0, Math.max(0, fit)).forEach((l, j) => pg.text(l, b.x + 6, top + 8.2 + j * 7.2, { size: 6, color: PDF_SOFT }));
+      } else {
+        D.wrap(r.title, b.w - 10, 6.8, true, Math.max(1, Math.floor((b.h - 6) / 8))).forEach((l, j) => pg.text(l, b.x + 6, b.y + 10.5 + j * 8, { size: 6.8, bold: true, color: PDF_INK }));
+      }
+    }
+    for (const [x, y, dir, color] of heads) pg.poly(dir > 0 ? [[x, y], [x - 5, y - 2.6], [x - 5, y + 2.6]] : [[x, y], [x + 5, y - 2.6], [x + 5, y + 2.6]], { fill: color });
+    // Legend, top right.
+    const legend = [['Prerequisite: take it first', LINE, null, true], ['Co-requisite: same semester or earlier', LINE, [2.4, 1.8], false]];
+    if (links.some((l) => l.broken)) legend.push(['Out of order in this plan', BROKEN, null, true]);
+    legend.forEach(([text, color, dash, arrow], j) => {
+      const ly = 40 + j * 13, tx = PW - M - D.width(text, 7.5);
+      pg.text(text, PW - M, ly + 2.6, { size: 7.5, color: PDF_SOFT, align: 'right' });
+      pg.line([[tx - 30, ly], [tx - (arrow ? 11 : 6), ly]], { stroke: color, lw: 0.75, dash });
+      if (arrow) pg.poly([[tx - 6, ly], [tx - 11, ly - 2.6], [tx - 11, ly + 2.6]], { fill: color });
+    });
+
+    // ---- page 2 on: every course with what it needs and what it leads to
+    const COLS = [['Course', 70], ['Title', 190], ['Hours', 34], ['Semester', 58], ['Prerequisites', 148], ['Co-requisites', 104], ['Leads to', 124]];
+    const xs = COLS.reduce((a, [, w]) => (a.push(a[a.length - 1] + w), a), [M]);
+    const itemsOf = (id, type) => {
+      const out = [], groups = new Set();
+      for (const e of ALL_EDGES) {
+        if (e.to !== id || e.type !== type || !at.has(e.from)) continue;
+        if (!e.any) { out.push(lab(e.from)); continue; }
+        const key = e.any.slice().sort().join('|');
+        if (!groups.has(key)) { groups.add(key); out.push(e.any.map(lab).join(' or ')); }
+      }
+      for (const p of C[id][type] || []) for (const o of [].concat(p)) if (!C[o]) out.push(`${lab(o)} (not in plan)`);
+      return [...new Set(out)];
+    };
+    const leadsOf = (id) => [...new Set(ALL_EDGES.filter((e) => e.from === id && at.has(e.to)).map((e) => lab(e.to)))];
+    // A list broken between its items, each line but the last ending in a comma (long "A or B" items break before "or").
+    const listLines = (items, w, size) => {
+      const lines = [];
+      let cur = '';
+      items.forEach((it, i) => {
+        const piece = it + (i < items.length - 1 ? ',' : '');
+        const next = cur ? `${cur} ${piece}` : piece;
+        if (!cur || D.width(next, size) <= w) { cur = next; } else { lines.push(cur); cur = piece; }
+        if (D.width(cur, size) > w) {
+          const parts = / or /.test(cur) ? cur.split(/ (?=or )/) : D.wrap(cur, w, size, false);
+          lines.push(...parts.slice(0, -1));
+          cur = parts[parts.length - 1];
+        }
+      });
+      if (cur) lines.push(cur);
+      return lines;
+    };
+    // The longest chain of prerequisites: the courses to start first.
+    const next = new Map();
+    for (const e of inPlan) if (e.type === 'pre') { if (!next.has(e.from)) next.set(e.from, []); next.get(e.from).push(e.to); }
+    const memo = new Map();
+    const longest = (id, seen = new Set()) => {
+      if (memo.has(id)) return memo.get(id);
+      if (seen.has(id)) return [id];
+      seen.add(id);
+      let best = [];
+      for (const t of next.get(id) || []) { const p = longest(t, seen); if (p.length > best.length) best = p; }
+      seen.delete(id);
+      const path = [id, ...best];
+      memo.set(id, path);
+      return path;
+    };
+    let chain = [];
+    for (const id of at.keys()) { const p = longest(id); if (p.length > chain.length) chain = p; }
+
+    let y = 0;
+    const tableHead = () => {
+      COLS.forEach(([name], i) => pg.text(name, xs[i] + 4, y + 10, { size: 7, bold: true, color: PDF_MUTED }));
+      y += 15;
+      pg.line([[M, y], [PW - M, y]], { stroke: '#CFC9BE', lw: 0.8 });
+    };
+    const tablePage = (first) => {
+      pg = D.page(PW, PH);
+      if (first) {
+        pg.text('COURSE BY COURSE', M, 42, { size: 7.5, bold: true, color: PDF_ACCENT });
+        pg.text(D.fit(info.program, PW - 2 * M, 16, true), M, 62, { size: 16, bold: true, color: PDF_INK });
+        pg.text('What each course needs first, what can be taken alongside it, and what it opens up.', M, 77, { size: 8.5, color: PDF_SOFT });
+        y = 92;
+        if (chain.length >= 3) {
+          const text = `Longest chain, ${chain.length} courses: ${chain.map(lab).join(' › ')}`;
+          const lines = D.wrap(text, PW - 2 * M - 20, 8, false);
+          pg.rect(M, y, PW - 2 * M, 14 + lines.length * 10.5, { fill: '#FDF3EA' });
+          lines.forEach((l, j) => pg.text(l, M + 10, y + 13 + j * 10.5, { size: 8, bold: j === 0 && false, color: PDF_INK }));
+          y += 14 + lines.length * 10.5;
+          pg.text('Start the first course of this chain early: a semester’s delay anywhere along it can delay graduation.', M, y + 12, { size: 7.5, color: PDF_MUTED });
+          y += 22;
+        }
+      } else {
+        pg.text(`${info.program} · prerequisite chains, continued`, M, 32, { size: 7.5, color: PDF_MUTED });
+        y = 46;
+      }
+      tableHead();
+    };
+    if (at.size) tablePage(true);
+    for (const c of cols) {
+      if (!c.ids.length) continue;
+      if (y + 16 + 18 > PH - 40) tablePage(false);
+      pg.rect(M, y + 3, PW - 2 * M, 16, { fill: PDF_HEAD });
+      const hrs = c.ids.reduce((s, id) => s + (+C[id].hrs || 0), 0);
+      pg.text(`${c.t.kind === 'credit' ? 'AP / Credit by Exam' : termName(c.t)}, ${fmtHrs(hrs)} hours`, M + 4, y + 14.2, { size: 8, bold: true, color: PDF_INK });
+      y += 21;
+      const ids = c.ids.slice();
+      for (const id of ids) {
+        const r = rows.get(id);
+        const cells = [
+          r.code ? [r.code] : [],
+          D.wrap(r.code ? C[id].title || '' : r.title, COLS[1][1] - 8, 8, !r.code, 2),
+          [fmtHrs(r.hrs)],
+          [c.t.kind === 'credit' ? 'AP credit' : termName(c.t)],
+          listLines(itemsOf(id, 'pre'), COLS[4][1] - 8, 8),
+          listLines(itemsOf(id, 'co'), COLS[5][1] - 8, 8),
+          listLines(leadsOf(id), COLS[6][1] - 8, 8),
+        ];
+        const lines = Math.max(1, ...cells.map((x) => x.length));
+        const rh = 8 + lines * 10;
+        if (y + rh > PH - 40) tablePage(false);
+        pg.rect(M, y + 3, 2.5, rh - 6, { fill: pdfColor(r.cat) });
+        cells.forEach((list, i) => {
+          if (!list.length && i >= 4) { pg.text('—', xs[i] + 4, y + 11.5, { size: 8, color: '#B8B2A7' }); return; }
+          list.forEach((l, j) => pg.text(l, xs[i] + 4, y + 11.5 + j * 10, { size: 8, bold: i === 0 || (i === 1 && !r.code), color: i === 0 || (i === 1 && !r.code) ? PDF_INK : i >= 4 ? PDF_INK : PDF_SOFT }));
+        });
+        y += rh;
+        pg.line([[M, y], [PW - M, y]], { stroke: PDF_LINE, lw: 0.5 });
+      }
+    }
+    pdfFooters(D, 'Made with FourSight. To rebuild these chains, upload this PDF to FourSight as your flowchart.', M);
+    return D;
+  }
+
+  const fileSafe = (s) => s.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  function downloadPdf(doc, name) {
+    const url = URL.createObjectURL(doc.blob());
+    const a = Object.assign(document.createElement('a'), { href: url, download: name });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+  // The Download PDF menu in the toolbar.
+  const dlMenu = $('dlMenu');
+  function setDownloadMenu(open) {
+    dlMenu.classList.toggle('open', open);
+    $('downloadBtn').setAttribute('aria-expanded', String(open));
+    if (!open) return;
+    // Right-aligned under the button, kept on screen on a phone.
+    const pop = $('dlPop'), b = $('downloadBtn').getBoundingClientRect(), w = Math.min(320, innerWidth - 32);
+    pop.style.width = `${w}px`;
+    pop.style.right = 'auto';
+    pop.style.left = `${Math.min(Math.max(16, b.right - w), innerWidth - 16 - w) - b.left}px`;
+  }
+  $('downloadBtn').addEventListener('click', (ev) => { ev.stopPropagation(); setDownloadMenu(!dlMenu.classList.contains('open')); });
+  document.addEventListener('click', (ev) => { if (!dlMenu.contains(ev.target)) setDownloadMenu(false); });
+  window.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && dlMenu.classList.contains('open')) { setDownloadMenu(false); $('downloadBtn').focus(); }
+  });
+  $('planPdfBtn').addEventListener('click', () => {
+    setDownloadMenu(false);
+    if (!scheduledTerms().some((i) => S.plan[i].length)) return toast('Your plan has no courses yet. Add some, then download it.');
+    const name = fileSafe(`${exportInfo().program} - Four-Year Plan.pdf`);
+    downloadPdf(planPdf(), name);
+    toast(`Downloaded <strong>${esc(name)}</strong>. To rebuild this plan later, upload it to FourSight as your curriculum.`);
+  });
+  $('chainsPdfBtn').addEventListener('click', () => {
+    setDownloadMenu(false);
+    if (!S.plan.some((s) => s.length)) return toast('Your plan has no courses yet. Add some, then download its prerequisite chains.');
+    const name = fileSafe(`${exportInfo().program} - Prerequisite Chains.pdf`);
+    downloadPdf(chainsPdf(), name);
+    toast(`Downloaded <strong>${esc(name)}</strong>. When you rebuild a plan from your four-year plan PDF, upload this as its prerequisite flowchart.`);
+  });
+
   // ---------------------------------------------------------------- boot
   // Until a student has answered the welcome questions once, opening FourSight starts on them, over ChE. A student
   // who saved a plan before the welcome screen existed (Version 1) sees it too, and can close it to return to that
@@ -3392,6 +3853,6 @@
   if (!started) showWelcome({ first: !startProgram });
 
   // Debug handle for testing.
-  window.__dp = { importText, revertToSuggested, showWelcome, importCurriculum, startOwn, selectProgram, S, analyze, EDGES, ALL_EDGES, edgeBroken, rectOf, scroller, toggleDone, addSummer, addRegular, removeTerm, lateFrom,
+  window.__dp = { planPdf, chainsPdf, importText, revertToSuggested, showWelcome, importCurriculum, startOwn, selectProgram, S, analyze, EDGES, ALL_EDGES, edgeBroken, rectOf, scroller, toggleDone, addSummer, addRegular, removeTerm, lateFrom,
     toggleTerm, minors: { removeCard: removeMinorCard, load: loadMinors, choose: chooseMinor, request: requestMinorCourse, add: addMinorCourses, prereqPlan, planIdFor, remove: removeMinor, data: () => MN } };
 })();
