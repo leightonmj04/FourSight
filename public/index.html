@@ -8,6 +8,17 @@
 </head>
 <body>
 
+  <!-- First screen: two quick questions pick where the plan starts (see "welcome" in app.js). -->
+  <section class="welcome" id="welcome" hidden aria-labelledby="wcTitle">
+    <div class="wc-glow" aria-hidden="true"></div>
+    <header class="wc-top">
+      <div class="wordmark wc-mark" aria-label="FourSight"><span class="wm-four">Four</span><span class="wm-sight">Sight</span></div>
+      <button class="btn ghost" id="wcClose" hidden>Back to my plan</button>
+    </header>
+    <main class="wc-main"><div class="wc-stage" id="wcStage"></div></main>
+    <footer class="wc-foot">No account needed. Your plan and any file you add stay on this device.</footer>
+  </section>
+
   <section id="app" class="app">
     <header class="topbar">
       <div class="brand">
@@ -22,8 +33,13 @@
           <span>Degree plan</span>
           <select id="programSelect" aria-label="Degree program"></select>
         </label>
+        <button class="btn minor-btn" id="minorBtn"></button>
       </div>
       <div class="topbar-right">
+        <button class="btn" id="newPlanBtn" title="Start a different plan">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          New plan
+        </button>
         <button class="btn panel-toggle" id="panelToggle" aria-expanded="true" aria-controls="panels">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 14 5-5 5 5"/></svg>
           <span id="panelToggleText">Minimize</span>
@@ -40,7 +56,7 @@
         <button class="status" id="statusBtn"></button>
         <button class="btn" id="resetBtn">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
-          Reset to suggested
+          <span id="resetLabel">Reset to suggested</span>
         </button>
       </div>
     </div>
@@ -73,6 +89,7 @@
         <div class="arow ahead" role="row"><span></span><span>Requirement</span><span>Progress</span><span>Hours</span><span>Courses</span></div>
         <div id="auditRows"></div>
       </div>
+      <div class="minor-strip" id="minorStrip" hidden></div>
     </section>
 
     <nav class="semnav" id="semnav" aria-label="Jump to semester">
@@ -110,6 +127,9 @@
       <div class="dock-main" id="dockMain"></div>
       <p class="hint">Drag a course to another semester. Hover to trace its chain, or pin it to keep the chain lit. Click for details.</p>
       <input type="file" id="transcriptFile" accept=".pdf,.txt,.csv,application/pdf,text/plain,text/csv" hidden>
+      <input type="file" id="curriculumFile" accept=".pdf,.txt,.csv,.tsv,.md,application/pdf,text/plain,text/csv" hidden>
+      <input type="file" id="flowchartFile" accept=".pdf,.txt,.csv,.tsv,.md,application/pdf,text/plain,text/csv" hidden>
+      <input type="file" id="minorFile" accept=".pdf,.txt,.csv,.tsv,.md,application/pdf,text/plain,text/csv" hidden>
     </footer>
 
     <div class="modal-backdrop" id="modal" hidden>
@@ -148,6 +168,7 @@
   <script src="programs/me.js"></script>
   <script src="programs/pe.js"></script>
   <script src="transcript.js"></script>
+  <script src="curriculum.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -48,15 +48,15 @@ FS.define({
       note: 'Section II: GEO 320S, 325K, 325M, 327G, 328W, 428, 330K, 338J, 341, 346C, 347D, 347G, 455S, 660A, 365Q, 468K, 370E, 371C, 371T topics, 376S, 377K. Section III (one, in place of a I or II course): M 340L, 341, 346, 348, 368K, 427L; C E 370K; C S 323E, 367; CHE 359; FIN 320F and similar. One-course caps apply to some topic groups.' }),
   },
   plan: [
-    ['M408C', 'CH301', 'GEO303', 'RHE306', 'UGS'],
-    ['M408D', 'CH302', 'PHY303K', 'PHY105M', 'GEO416E'],
-    ['M427J', 'PHY303L', 'PHY105N', 'EM306', 'PGE311', 'PGE333T'],
-    ['EM319', 'PGE326', 'PGE322K', 'GEO416S', 'GOV310L'],
-    ['PGE424', 'PGE323K', 'PGE430', 'GEO416W', 'USHIST'],
-    ['PGE358', 'PGE334', 'PGE365', 'GEO476K', 'GEO420K'],
+    ['M408C', 'CH301', 'GEO303', 'UGS', 'USHIST'],
+    ['RHE306', 'M408D', 'CH302', 'PHY303K', 'PHY105M', 'GEO416E'],
+    ['M427J', 'PHY303L', 'PHY105N', 'EM306', 'PGE326', 'SBS'],
+    ['PGE311', 'PGE333T', 'EM319', 'GEO416S', 'GOV310L'],
+    ['PGE322K', 'PGE424', 'GEO416W', 'GOV312'],
+    ['PGE323K', 'PGE358', 'GEO476K', 'GEO420K', 'AMHIST'],
     ['GEO376L'],
-    ['PGE373L', 'GEENG1', 'GEOSCI1', 'E316', 'VAPA'],
-    ['GEENG2', 'GEOSCI2', 'AMHIST', 'GOV312', 'SBS'],
+    ['PGE430', 'PGE334', 'GEENG1', 'E316', 'GEENG2'],
+    ['PGE365', 'PGE373L', 'GEOSCI1', 'VAPA', 'GEOSCI2'],
   ],
   pools: {
     eng: { codes: ['E S 369N', 'PGE 323L', 'PGE 323M', 'PGE 338', 'PGE 362', 'PGE 364', 'PGE 376', 'PGE 379', 'PGE 679HA', 'PGE 679HB', 'M 340L', 'M 341', 'M 346', 'M 348', 'M 368K', 'M 427L', 'C E 370K', 'C S 323E', 'C S 367', 'CHE 359'] },
@@ -65,7 +65,7 @@ FS.define({
   notes: [
     'Critical path: M 408D, PGE 326, PGE 323K, PGE 365; and a GEO course with PGE 333T, then PGE 424, PGE 358, PGE 373L. GEO 376L, a summer field course, sits between junior and senior year.',
     'Prerequisite mismatch: several PGE prerequisites in the 2025-26 listings name courses the 2026-28 BSGE no longer requires (PGE 301 and 427 for 334 and 323K; PGE 323L and 362 for 373L; GEO 416M or 316P for 424 and 358). PGE 365 is also listed as petroleum-majors only. Either the 2026-28 listings changed or Geosystems students get department clearance; confirm with PGE advising. These show as notes in each course\'s details, not as lines.',
-    'The department\'s degree requirements page still lists 2024-26 flowcharts and elective lists as current. The suggested semester order here is FourSight\'s, built to meet every prerequisite in the plan.',
+    'The department\'s degree requirements page still lists 2024-26 flowcharts and elective lists as current. The suggested semester order here is FourSight\'s, built to meet every prerequisite and to spread engineering courses evenly across the four years.',
   ],
   links: [
     { label: 'Catalog page', url: 'https://catalog.utexas.edu/undergraduate/programs/geosystems-engineering-bsge/' },

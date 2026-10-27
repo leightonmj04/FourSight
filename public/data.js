@@ -132,4 +132,4 @@ window.FS = (() => {
 
 // Course type keys and their colors (see --major ... --tech in styles.css). Each program names
 // the types it uses.
-window.CATEGORY_KEYS = ['major', 'stem', 'core', 'alt', 'tech'];
+window.CATEGORY_KEYS = ['major', 'stem', 'core', 'alt', 'tech', 'minor'];

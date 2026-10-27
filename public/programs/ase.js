@@ -34,14 +34,14 @@ FS.define({
                note: 'Approved by aerospace faculty before you enroll. Three ASE 128 project-lab credits combine into one technical elective, as does one ASE 128 plus a two-hour co-op.' },
   },
   plan: [
-    ['M408C', 'CH301', 'COE301', 'ME210', 'RHE306'],
-    ['M408D', 'PHY303K', 'PHY105M', 'UGS', 'GOV310L', 'E316'],
-    ['M427J', 'PHY303L', 'PHY105N', 'EM306', 'ME310T', 'COE311K'],
-    ['M427L', 'EM311M', 'EM319', 'ES333T', 'VAPA'],
-    ['ASE320', 'ASE120K', 'ASE330M', 'ASE324L', 'ASE375', 'AMHIST'],
-    ['ASE362K', 'ASE367K', 'ASE366K', 'ASE370C', 'STRUCT'],
-    ['ASE374D', 'ASE376K', 'ASELAB', 'ASEEL1', 'GOV312', 'USHIST'],
-    ['ASE374E', 'ASEEL2', 'ASEEL3', 'TECHEL', 'SBS'],
+    ['M408C', 'CH301', 'COE301', 'GOV310L', 'GOV312'],
+    ['ME210', 'RHE306', 'M408D', 'PHY303K', 'PHY105M', 'UGS'],
+    ['M427J', 'PHY303L', 'PHY105N', 'EM306', 'COE311K', 'ES333T'],
+    ['ME310T', 'M427L', 'EM311M', 'EM319', 'SBS'],
+    ['ASE320', 'ASE120K', 'ASE324L', 'AMHIST', 'STRUCT', 'ASEEL2'],
+    ['E316', 'ASE362K', 'ASE367K', 'ASE366K', 'ASEEL1'],
+    ['VAPA', 'ASE330M', 'ASE374D', 'ASE376K', 'ASELAB', 'TECHEL'],
+    ['ASE375', 'ASE370C', 'USHIST', 'ASE374E', 'ASEEL3'],
   ],
   pools: {
     struct: { codes: ['ASE 339', 'E M 339', 'ASE 357', 'ASE 365', 'COE 321K'] },
@@ -50,7 +50,7 @@ FS.define({
   notes: [
     'Critical path: M 408C, M 408D, M 427L, ASE 320, ASE 367K, ASE 374D, ASE 374E. M E 310T must also be done before ASE 320. A second chain runs E M 306, E M 311M, ASE 330M, ASE 370C.',
     'Every degree course needs a C- or better, letter-graded.',
-    'The suggested semester order here is FourSight\'s, built to meet every prerequisite. Compare it with the department flowchart in the Box folder.',
+    'The suggested semester order here is FourSight\'s, built to meet every prerequisite and to spread engineering courses evenly across the four years. Compare it with the department flowchart in the Box folder.',
   ],
   links: [
     { label: 'Catalog page', url: 'https://catalog.utexas.edu/undergraduate/programs/aerospace-engineering-bsase/' },

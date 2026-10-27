@@ -33,13 +33,13 @@ FS.define({
   },
   plan: [
     ['M408C', 'CH401', 'EVE103', 'RHE306', 'UGS'],
-    ['M408D', 'CH402', 'EVE302', 'PHY303K', 'PHY105M'],
-    ['M427J', 'PHY303L', 'PHY105N', 'EM306', 'CH328M', 'EVE310'],
-    ['EVE312', 'ES333T', 'CE311K', 'CE319F', 'THERMO', 'BIO311C'],
-    ['CE356', 'CE311S', 'ARE323K', 'GEO303', 'EVEEL1'],
-    ['EVEEL2', 'EVEEL3', 'MATHSCI', 'GOV310L', 'E316'],
-    ['EVEEL4', 'EVEEL5', 'ENGEL1', 'VAPA', 'AMHIST'],
-    ['DESIGN', 'ENGEL2', 'GOV312', 'USHIST', 'SBS'],
+    ['M408D', 'CH402', 'EVE302', 'PHY303K', 'PHY105M', 'SBS'],
+    ['M427J', 'PHY303L', 'PHY105N', 'CH328M', 'THERMO', 'CE311S'],
+    ['EM306', 'EVE310', 'BIO311C', 'GOV310L', 'VAPA'],
+    ['CE311K', 'CE319F', 'GEO303', 'EVEEL1', 'GOV312'],
+    ['EVE312', 'ES333T', 'ENGEL1', 'ENGEL2', 'USHIST'],
+    ['CE356', 'MATHSCI', 'E316', 'EVEEL4', 'DESIGN'],
+    ['ARE323K', 'EVEEL2', 'EVEEL3', 'EVEEL5', 'AMHIST'],
   ],
   pools: {
     eve: { codes: ['ARE 346N', 'ARE 346P', 'ARE 370', 'ARE 371', 'ARE 372', 'ARE 377K', 'C E 369L', 'C E 369R', 'C E 370L', 'C E 342', 'C E 346', 'EVE 350', 'C E 357', 'C E 358', 'C E 374K', 'C E 374N', 'C E 374U', 'CHE 319', 'CHE 322'] },
@@ -48,7 +48,7 @@ FS.define({
   notes: [
     'Critical path: CH 401, CH 402 (EVE 302 alongside), EVE 302, EVE 312, C E 342 or 369L, EVE 370 (design). A second chain runs E M 306, C E 319F, C E 356, C E 374K.',
     'The catalog asks EnvE students to pick Visual and Performing Arts (050) and Social and Behavioral Sciences (080) courses that also meet ABET criteria. GOV 310L and 312L are the plan\'s government courses.',
-    'The suggested semester order here is FourSight\'s, built to meet every prerequisite. Compare it with the CAEE flowchart in the Box folder.',
+    'The suggested semester order here is FourSight\'s, built to meet every prerequisite and to spread engineering courses evenly across the four years. Compare it with the CAEE flowchart in the Box folder.',
   ],
   links: [
     { label: 'Catalog page', url: 'https://catalog.utexas.edu/undergraduate/programs/environmental-engineering-bsenve/' },

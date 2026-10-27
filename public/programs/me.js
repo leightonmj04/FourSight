@@ -41,14 +41,14 @@ FS.define({
       note: 'Twelve hours in one technical track (earns a credential), up to two combined tracks, a specialty track, or a pre-approved custom track. Settle your track around when you register for M E 330 or 334; you can start CGEs once the undergraduate office records it. Tracks offered in 2026: Energy Systems; Nuclear and Radiation; Advanced Materials; Automotive and Vehicle Systems; Design and Manufacturing; Dynamics, Vibrations, Acoustics and Controls; Industrial Engineering and Management; Biomedical and Biomechanical; Humanitarian; Robotics and Mechatronics; Sustainable Engineering. Prerequisites depend on the course; most need M E 318M, 330, 334 or 340.' }),
   },
   plan: [
-    ['M408C', 'CH301', 'ME302', 'RHE306', 'UGS'],
-    ['M408D', 'PHY303K', 'PHY105M', 'GOV310L', 'E316'],
-    ['M427J', 'PHY303L', 'PHY105N', 'EM306', 'ME316T', 'ME335'],
+    ['M408C', 'CH301', 'ME302', 'UGS', 'GOV312'],
+    ['RHE306', 'M408D', 'PHY303K', 'PHY105M', 'MATHSCI'],
+    ['M427J', 'PHY303L', 'PHY105N', 'EM306', 'ME316T', 'ES333T'],
     ['M427L', 'ME318M', 'EM319', 'ME314D', 'ME330', 'ME130L'],
-    ['ME334', 'ME134L', 'ME339', 'ME139L', 'ME340', 'ME140L', 'ES333T'],
-    ['ME344', 'ME144L', 'ME338', 'ME353', 'CGE1', 'VAPA'],
-    ['ME366J', 'CGE2', 'CGE3', 'MATHSCI', 'AMHIST'],
-    ['ME466E', 'CGE4', 'GOV312', 'USHIST', 'SBS'],
+    ['E316', 'ME334', 'ME134L', 'ME339', 'ME139L', 'ME340', 'ME140L'],
+    ['ME335', 'ME344', 'ME144L', 'ME338', 'VAPA', 'AMHIST'],
+    ['ME353', 'CGE1', 'ME366J', 'CGE3', 'SBS'],
+    ['GOV310L', 'CGE2', 'ME466E', 'CGE4', 'USHIST'],
   ],
   pools: {
     cge: { codes: ['M E 336', 'M E 336P', 'M E 337C', 'M E 337F', 'M E 337G', 'M E 343', 'M E 348F', 'M E 349', 'M E 350', 'M E 350R', 'M E 354M', 'M E 355K', 'M E 359', 'M E 361E', 'M E 363M', 'M E 364L', 'M E 365D', 'M E 366L', 'M E 367S', 'M E 368C', 'M E 369P', 'M E 371D', 'M E 374T', 'M E 376N', 'M E 378D', 'M E 378E', 'M E 378K', 'M E 379M', 'M E 379N', 'E S 277'] },
@@ -56,7 +56,7 @@ FS.define({
   notes: [
     'Critical path, two zero-slack chains: M 427J, M E 318M, M E 340, M E 344, M E 466E; and M E 316T, M E 330, M E 339, M E 366J, M E 466E. Both run from the third semester straight through the eighth.',
     'Career Gateway Elective track lists here come from the department\'s spring and fall 2026 offering sheets, not the complete track lists.',
-    'The suggested semester order here is FourSight\'s, built to meet every prerequisite. Compare it with the department\'s recommended BSME timeline.',
+    'The suggested semester order here is FourSight\'s, built to meet every prerequisite and to spread engineering courses evenly across the four years. Compare it with the department\'s recommended BSME timeline.',
   ],
   links: [
     { label: 'Catalog page', url: 'https://catalog.utexas.edu/undergraduate/programs/mechanical-engineering-bsme/' },

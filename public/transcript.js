@@ -1,6 +1,8 @@
 // Transcript import for FourSight. Everything runs in the browser: the file never leaves the device.
 //
 //   extractText(file)  -> plain text (PDF via pdf.js, otherwise read as text)
+//   pdfRows(file)      -> a PDF's lines as positioned cells
+//   pdfPages(file)     -> each page's raw text runs and vector shapes (used by curriculum.js)
 //   parse(text)        -> [{ code, subj, num, title, hrs, grade, term }]
 //   build(courses)     -> { terms, plan, done, credit, taken, prior, report }
 //
@@ -34,10 +36,17 @@
   async function extractText(file) {
     const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
     if (!isPdf) return await file.text();
+    return (await pdfRows(file)).map((cells) => cells.map((c) => c.text).join('   ')).join('\n');
+  }
+
+  // The visual lines of a PDF, top to bottom, each as cells: text runs closer than 12 points apart join into one
+  // cell; x and end are the cell's left and right edges in points. Curriculum import (curriculum.js) uses x to tell side-by-side
+  // semester columns apart.
+  async function pdfRows(file) {
     const pdfjs = await loadPdfJs();
     // isEvalSupported: false keeps pdf.js within the extension's no-eval security policy.
     const doc = await pdfjs.getDocument({ data: await file.arrayBuffer(), isEvalSupported: false }).promise;
-    const lines = [];
+    const out = [];
     for (let p = 1; p <= doc.numPages; p++) {
       const content = await (await doc.getPage(p)).getTextContent();
       // Rebuild visual lines: group text runs by their baseline, then order them left to right.
@@ -50,15 +59,93 @@
       }
       [...rows.entries()].sort((a, b) => b[0] - a[0]).forEach(([, runs]) => {
         runs.sort((a, b) => a.x - b.x);
-        let line = '', end = null;
+        const cells = [];
+        let end = null;
         for (const r of runs) {
-          if (end !== null) line += r.x - end > 12 ? '   ' : (r.x - end > 1 ? ' ' : '');
-          line += r.s; end = r.x + r.w;
+          const gap = end === null ? Infinity : r.x - end;
+          if (gap > 12) cells.push({ x: r.x, end: r.x + r.w, text: r.s });
+          else { const c = cells[cells.length - 1]; c.text += (gap > 1 ? ' ' : '') + r.s; c.end = r.x + r.w; }
+          end = r.x + r.w;
         }
-        lines.push(line);
+        out.push(cells);
       });
     }
-    return lines.join('\n');
+    return out;
+  }
+
+  // Each page's raw text runs ({ x, y, w, h, s } in PDF points, y up) and, when asked, its vector shapes. The
+  // curriculum and flowchart readers (curriculum.js) lay these out themselves: newspaper columns, footnote markers,
+  // course boxes and the lines or shapes that connect them.
+  async function pdfPages(file, { shapes = false } = {}) {
+    const pdfjs = await loadPdfJs();
+    const doc = await pdfjs.getDocument({ data: await file.arrayBuffer(), isEvalSupported: false }).promise;
+    const pages = [];
+    for (let p = 1; p <= doc.numPages; p++) {
+      const page = await doc.getPage(p);
+      const [x0, y0, x1, y1] = page.view;
+      const content = await page.getTextContent();
+      const items = content.items.filter((it) => it.str && it.str.trim()).map((it) => ({
+        x: it.transform[4], y: it.transform[5], w: it.width || 0, h: it.height || Math.hypot(it.transform[2], it.transform[3]) || 0, s: it.str,
+      }));
+      pages.push({ width: x1 - x0, height: y1 - y0, items, shapes: shapes ? await pageShapes(page, pdfjs) : [] });
+    }
+    return pages;
+  }
+
+  // Vector shapes on a page, in the same coordinates as the text: { kind: 'rect' | 'oval' | 'poly' | 'line',
+  // box: [minX, minY, maxX, maxY], pts (corners or line points), n (corners of a polygon), filled, stroked }.
+  async function pageShapes(page, pdfjs) {
+    const O = pdfjs.OPS;
+    const ol = await page.getOperatorList();
+    const out = [];
+    let ctm = [1, 0, 0, 1, 0, 0];
+    const stack = [];
+    const mul = (m, n) => [m[0] * n[0] + m[2] * n[1], m[1] * n[0] + m[3] * n[1], m[0] * n[2] + m[2] * n[3], m[1] * n[2] + m[3] * n[3],
+      m[0] * n[4] + m[2] * n[5] + m[4], m[1] * n[4] + m[3] * n[5] + m[5]];
+    const at = (x, y) => [ctm[0] * x + ctm[2] * y + ctm[4], ctm[1] * x + ctm[3] * y + ctm[5]];
+    const PAINT = {
+      [O.stroke]: [0, 1], [O.closeStroke]: [0, 1], [O.fill]: [1, 0], [O.eoFill]: [1, 0], [O.fillStroke]: [1, 1],
+      [O.eoFillStroke]: [1, 1], [O.closeFillStroke]: [1, 1], [O.closeEOFillStroke]: [1, 1],
+    };
+    ol.fnArray.forEach((fn, i) => {
+      const a = ol.argsArray[i];
+      if (fn === O.save) stack.push(ctm);
+      else if (fn === O.restore) ctm = stack.pop() || ctm;
+      else if (fn === O.transform) ctm = mul(ctm, a);
+      else if (fn === O.paintFormXObjectBegin) { stack.push(ctm); if (a && a[0]) ctm = mul(ctm, a[0]); }
+      else if (fn === O.paintFormXObjectEnd) ctm = stack.pop() || ctm;
+      else if (fn === O.constructPath) {
+        const paint = PAINT[ol.fnArray[i + 1]];
+        if (!paint) return; // clipping paths and the like
+        const [ops, args] = a;
+        let k = 0, sub = null;
+        const finish = () => {
+          if (!sub || !sub.pts.length) return;
+          const xs = sub.pts.map((q) => q[0]), ys = sub.pts.map((q) => q[1]);
+          const box = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+          const first = sub.pts[0], last = sub.pts[sub.pts.length - 1];
+          const closed = sub.closed || (sub.pts.length > 2 && Math.hypot(first[0] - last[0], first[1] - last[1]) < 0.5);
+          const kind = sub.rect ? 'rect' : sub.curve ? (closed ? 'oval' : 'line') : closed ? 'poly' : 'line';
+          const n = closed ? new Set(sub.pts.map((q) => `${Math.round(q[0])},${Math.round(q[1])}`)).size : sub.pts.length;
+          out.push({ kind, box, pts: sub.pts, n, filled: !!paint[0], stroked: !!paint[1] });
+          sub = null;
+        };
+        for (const op of ops) {
+          if (op === O.rectangle) {
+            finish();
+            const [x, y, w, h] = args.slice(k, k + 4); k += 4;
+            sub = { pts: [at(x, y), at(x + w, y), at(x + w, y + h), at(x, y + h)], rect: true, closed: true };
+            finish();
+          } else if (op === O.moveTo) { finish(); sub = { pts: [at(args[k], args[k + 1])] }; k += 2; }
+          else if (op === O.lineTo) { if (!sub) sub = { pts: [] }; sub.pts.push(at(args[k], args[k + 1])); k += 2; }
+          else if (op === O.curveTo) { if (!sub) sub = { pts: [] }; sub.curve = true; sub.pts.push(at(args[k + 4], args[k + 5])); k += 6; }
+          else if (op === O.curveTo2 || op === O.curveTo3) { if (!sub) sub = { pts: [] }; sub.curve = true; sub.pts.push(at(args[k + 2], args[k + 3])); k += 4; }
+          else if (op === O.closePath) { if (sub) sub.closed = true; }
+        }
+        finish();
+      }
+    });
+    return out;
   }
 
   // ------------------------------------------------------------------ parsing
@@ -327,5 +414,5 @@
     };
   }
 
-  window.Transcript = { extractText, parse, build, PASSING };
+  window.Transcript = { extractText, pdfRows, pdfPages, parse, build, PASSING };
 })();

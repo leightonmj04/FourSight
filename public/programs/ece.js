@@ -69,27 +69,12 @@
     note: `Choose ${n * 3} hours from: ${options.join(', ')}. Courses here must be letter-graded; 4-hour courses add an hour.`,
   });
 
-  // The first three terms and the degree-core courses after them are the same in every
-  // concentration; a, b, c and d are the concentration's courses for terms 4 to 7.
-  function plan({ a, b, c, d }) {
-    return [
-      ['M408C', 'ECE302', 'ECE306', 'RHE306', 'UGS'],
-      ['M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L', 'GOV310L'],
-      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'ECE312'],
-      ['ECE313', 'ECE351K', 'ECE333T', ...a],
-      [...b, 'VAPA', 'AMHIST'],
-      [...c, 'ADVTECH', 'FREE1', 'GOV312'],
-      ['ECE364D', ...d, 'FREE2', 'USHIST', 'E316'],
-      ['ECE464', 'FREE3', 'FREE4', 'SBS', 'CORE9'],
-    ];
-  }
-
   const NOTES = [
     'ECE 333T, ECE 160/260/360/460 and ECE 379K need ECE 312 or 313 with a C- first.',
     'ECE 364D needs one core lab completed or concurrent; senior design needs ECE 364D plus one core lab completed. Core labs: ECE 438, 440, 445L, 445S, 460J, 461L, 462L, 368L/468L, 471C.',
     'No more than 25 hours of transfer ECE coursework count. All concentration courses must be letter-graded.',
     'The 2026-28 flowchart applies only to students starting ECE in fall 2026 or later; earlier students use the 2022-24 or 2024-26 flowcharts on the curriculum page.',
-    'The suggested semester order here is FourSight\'s, built to meet every prerequisite. Compare it with the department flowchart.',
+    'The suggested semester order here is FourSight\'s, built to meet every prerequisite and to spread engineering courses evenly across the four years. Compare it with the department flowchart.',
   ];
   const CATALOG = 'https://catalog.utexas.edu/undergraduate/programs/electrical-computer-engineering-';
   const links = (slug) => [
@@ -98,7 +83,7 @@
     { label: '2026-28 flowchart', url: 'https://utexas.box.com/s/tqiylly5fehaapl4nebza8v0shgwpzlz' },
   ];
 
-  function concentration({ id, name, short, slug, path, labs, courses, options, n, critical }) {
+  function concentration({ id, name, short, slug, plan, labs, courses, options, n, critical }) {
     FS.define({
       id: `ece-${id}`,
       group: 'Electrical and Computer Engineering',
@@ -109,7 +94,7 @@
       hours: 125,
       categories: { major: 'ECE Degree Core', stem: 'Math and Science', core: 'Core Curriculum', alt: `Concentration: ${short}`, tech: 'Free and Technical Electives' },
       courses: { ...core(labs), ...courses, ...choices(n, options) },
-      plan: plan(path),
+      plan,
       pools: { conc: { codes: options } },
       notes: [critical, ...NOTES],
       links: links(slug),
@@ -121,7 +106,16 @@
     labs: ['ECE445L'],
     courses: pick('ECE316', 'ECE460N', 'ECE445L', 'ECE360C', 'M325K'),
     n: 3, options: ['ECE 422C', 'ECE 445M', 'ECE 445S', 'ECE 460M', 'ECE 360P', 'ECE 460R', 'ECE 362K', 'C S 375'],
-    path: { a: ['M325K', 'ECE316'], b: ['ECE460N', 'ECE445L', 'ECE360C'], c: ['CHOICE1', 'CHOICE2'], d: ['CHOICE3'] },
+    plan: [
+      ['M408C', 'ECE302', 'ECE306', 'RHE306', 'UGS'],
+      ['M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L', 'ECE316'],
+      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'E316'],
+      ['ECE312', 'ECE313', 'M325K', 'SBS', 'CORE9'],
+      ['GOV310L', 'ECE351K', 'ECE333T', 'FREE1', 'GOV312'],
+      ['ECE445L', 'ECE364D', 'CHOICE3', 'USHIST', 'FREE4'],
+      ['ECE460N', 'ECE360C', 'VAPA', 'CHOICE2', 'FREE2'],
+      ['AMHIST', 'CHOICE1', 'ADVTECH', 'ECE464', 'FREE3'],
+    ],
     critical: 'Computer-side critical path: ECE 306, ECE 319K, ECE 312, then the concentration labs (ECE 445L) before ECE 364D and senior design.',
   });
   concentration({
@@ -129,7 +123,16 @@
     labs: ['ECE460J'],
     courses: pick('ECE461P', 'ECE360C', 'ECE460J', 'ECE351M', 'M325K'),
     n: 3, options: ['ECE 422C', 'ECE 445S', 'ECE 360P', 'ECE 361C', 'ECE 462L', 'ECE 362K', 'ECE 471C', 'ECE 371Q'],
-    path: { a: ['M325K', 'CHOICE1'], b: ['ECE461P', 'ECE460J', 'ECE351M'], c: ['ECE360C', 'CHOICE2'], d: ['CHOICE3'] },
+    plan: [
+      ['M408C', 'ECE302', 'ECE306', 'UGS', 'CORE9'],
+      ['RHE306', 'M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L'],
+      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'VAPA'],
+      ['ECE312', 'ECE313', 'M325K', 'AMHIST', 'GOV312'],
+      ['ECE351K', 'ECE333T', 'CHOICE1', 'CHOICE2', 'USHIST'],
+      ['ECE461P', 'ECE360C', 'ADVTECH', 'FREE2', 'SBS'],
+      ['ECE460J', 'ECE364D', 'CHOICE3', 'E316', 'FREE3'],
+      ['GOV310L', 'ECE351M', 'FREE1', 'ECE464', 'FREE4'],
+    ],
     critical: 'Electrical-side critical path: ECE 302, ECE 411, then a core lab (ECE 460J here), ECE 364D and senior design.',
   });
   concentration({
@@ -137,7 +140,16 @@
     labs: ['ECE461L'],
     courses: pick('ECE422C', 'ECE360C', 'ECE461L', 'M325K'),
     n: 4, options: ['ECE 316', 'ECE 445L', 'ECE 445M', 'ECE 360F', 'ECE 460N', 'ECE 360P', 'ECE 361Q', 'ECE 372N', 'ECE 360T', 'ECE 461P'],
-    path: { a: ['M325K', 'ECE422C'], b: ['ECE360C', 'ECE461L', 'CHOICE1'], c: ['CHOICE2', 'CHOICE3'], d: ['CHOICE4'] },
+    plan: [
+      ['M408C', 'ECE302', 'ECE306', 'UGS', 'GOV310L'],
+      ['RHE306', 'M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L'],
+      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'AMHIST'],
+      ['ECE312', 'ECE313', 'M325K', 'USHIST', 'CORE9'],
+      ['ECE351K', 'ECE422C', 'FREE1', 'GOV312', 'FREE2'],
+      ['ECE333T', 'ECE461L', 'VAPA', 'CHOICE2', 'ADVTECH'],
+      ['ECE360C', 'CHOICE3', 'ECE364D', 'CHOICE4', 'E316'],
+      ['CHOICE1', 'ECE464', 'FREE3', 'FREE4', 'SBS'],
+    ],
     critical: 'Critical path, seven straight semesters: ECE 306, ECE 319K, ECE 312, ECE 422C, ECE 461L, ECE 364D, ECE 464K.',
   });
   concentration({
@@ -156,7 +168,16 @@
         note: 'Prerequisites shown are for ECE 445S. ECE 471C needs ECE 445S and ECE 351M or 360K, with engineering communication completed or concurrent. Either one is a core lab.' }),
     },
     n: 4, options: ['ECE 325', 'ECE 325K', 'ECE 445S', 'ECE 351M', 'ECE 360C', 'ECE 460J', 'ECE 360K', 'ECE 461P', 'ECE 362K', 'ECE 363M', 'ECE 471C', 'ECE 371Q', 'M 325K', 'M 362M', 'M 365C'],
-    path: { a: ['M427L', 'CSP325'], b: ['CSP362K', 'CSP445S', 'CHOICE1'], c: ['CHOICE2', 'CHOICE3'], d: ['CHOICE4'] },
+    plan: [
+      ['M408C', 'ECE302', 'ECE306', 'UGS', 'USHIST'],
+      ['RHE306', 'M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L'],
+      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'SBS'],
+      ['ECE312', 'ECE313', 'M427L', 'E316', 'CORE9'],
+      ['ECE351K', 'CSP325', 'VAPA', 'ADVTECH', 'FREE2'],
+      ['ECE333T', 'CSP362K', 'AMHIST', 'CHOICE2', 'CHOICE4'],
+      ['CSP445S', 'CHOICE1', 'FREE1', 'GOV312', 'ECE364D'],
+      ['GOV310L', 'CHOICE3', 'ECE464', 'FREE3', 'FREE4'],
+    ],
     critical: 'Electrical-side critical path: ECE 302, ECE 411, then a core lab (ECE 445S or 471C here), ECE 364D and senior design.',
   });
   concentration({
@@ -164,7 +185,16 @@
     labs: ['ECE438'],
     courses: pick('ECE325', 'ECE339', 'ECE438', 'ECE316', 'M427L'),
     n: 3, options: ['ECE 321K', 'ECE 438K', 'ECE 338L', 'ECE 440', 'ECE 445L', 'ECE 445S', 'ECE 460M', 'ECE 460N', 'ECE 460R', 'ECE 360S', 'ECE 361R', 'ECE 363M', 'ECE 374K', 'ECE 374L'],
-    path: { a: ['M427L', 'ECE325'], b: ['ECE339', 'ECE438', 'ECE316'], c: ['CHOICE1', 'CHOICE2'], d: ['CHOICE3'] },
+    plan: [
+      ['M408C', 'ECE302', 'ECE306', 'RHE306', 'UGS'],
+      ['M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L', 'ECE316'],
+      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'E316'],
+      ['ECE312', 'ECE313', 'M427L', 'USHIST', 'CORE9'],
+      ['GOV310L', 'ECE325', 'ECE339', 'CHOICE2', 'ADVTECH'],
+      ['ECE333T', 'ECE438', 'FREE1', 'GOV312', 'CHOICE3'],
+      ['ECE351K', 'ECE364D', 'FREE2', 'FREE3', 'SBS'],
+      ['VAPA', 'AMHIST', 'CHOICE1', 'ECE464', 'FREE4'],
+    ],
     critical: 'Electrical-side critical path: ECE 302, ECE 411, ECE 438, ECE 364D, senior design.',
   });
   concentration({
@@ -180,7 +210,16 @@
         note: 'Either one is a core lab. If you take ECE 468L in the other slot, take ECE 462L here.' }),
     },
     n: 3, options: ['ECE 339', 'ECE 339S', 'ECE 341', 'ECE 362Q', 'ECE 362R', 'ECE 362S', 'ECE 368L', 'ECE 369', 'M E 337C'],
-    path: { a: ['M427L', 'ECE325'], b: ['ESRE369', 'ESRE462L', 'ECE362K'], c: ['CHOICE1', 'CHOICE2'], d: ['CHOICE3'] },
+    plan: [
+      ['M408C', 'ECE302', 'ECE306', 'UGS', 'CORE9'],
+      ['RHE306', 'M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L'],
+      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'SBS'],
+      ['ECE312', 'ECE313', 'M427L', 'USHIST', 'E316'],
+      ['ECE351K', 'ECE362K', 'AMHIST', 'FREE1', 'FREE3'],
+      ['GOV310L', 'ECE333T', 'ESRE462L', 'CHOICE2', 'CHOICE3'],
+      ['ECE325', 'ADVTECH', 'GOV312', 'ECE364D', 'FREE2'],
+      ['ESRE369', 'VAPA', 'CHOICE1', 'ECE464', 'FREE4'],
+    ],
     critical: 'Electrical-side critical path: ECE 302, ECE 411, then a power lab (ECE 462L or 468L), ECE 364D and senior design.',
   });
   concentration({
@@ -195,7 +234,16 @@
         pre: ['ECE325'], alias: ['ECE 325K', 'ECE 363M'], note: 'Both need ECE 325.' }),
     },
     n: 3, options: ['ECE 321K', 'ECE 325K', 'ECE 334K', 'ECE 341', 'ECE 347', 'ECE 348', 'ECE 361R', 'ECE 363M', 'ECE 363N', 'ECE 369', 'ECE 374K', 'ECE 374L'],
-    path: { a: ['M427L', 'ECE325'], b: ['ECE339', 'FW438', 'FW325K'], c: ['CHOICE1', 'CHOICE2'], d: ['CHOICE3'] },
+    plan: [
+      ['M408C', 'ECE302', 'ECE306', 'RHE306', 'UGS'],
+      ['M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L', 'VAPA'],
+      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'USHIST'],
+      ['ECE312', 'ECE313', 'M427L', 'GOV312', 'CORE9'],
+      ['ECE333T', 'ECE339', 'CHOICE1', 'FREE1', 'SBS'],
+      ['ECE351K', 'FW438', 'E316', 'FREE3', 'FREE4'],
+      ['ECE325', 'AMHIST', 'CHOICE2', 'ECE364D', 'FREE2'],
+      ['GOV310L', 'FW325K', 'ADVTECH', 'CHOICE3', 'ECE464'],
+    ],
     critical: 'Critical path: ECE 302, ECE 411, ECE 325 (with M 427L), ECE 325K or 363M; the core lab (ECE 438, 462L or 468L) gates ECE 364D and senior design.',
   });
   concentration({
@@ -203,7 +251,16 @@
     labs: ['ECE440'],
     courses: pick('ECE325', 'ECE339', 'ECE440', 'M427L'),
     n: 4, options: ['ECE 334K', 'ECE 438', 'ECE 338L', 'ECE 339S', 'ECE 347', 'ECE 348', 'ECE 360S', 'ECE 460R'],
-    path: { a: ['M427L', 'ECE325'], b: ['ECE339', 'ECE440', 'CHOICE1'], c: ['CHOICE2', 'CHOICE3'], d: ['CHOICE4'] },
+    plan: [
+      ['M408C', 'ECE302', 'ECE306', 'UGS', 'SBS'],
+      ['RHE306', 'M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L'],
+      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'E316'],
+      ['GOV310L', 'ECE312', 'ECE313', 'M427L', 'GOV312'],
+      ['ECE351K', 'ECE339', 'CHOICE1', 'AMHIST', 'ADVTECH'],
+      ['ECE333T', 'ECE325', 'CHOICE2', 'CHOICE4', 'USHIST'],
+      ['ECE440', 'VAPA', 'ECE364D', 'FREE3', 'FREE4'],
+      ['CHOICE3', 'FREE1', 'FREE2', 'ECE464', 'CORE9'],
+    ],
     critical: 'Electrical-side critical path: ECE 302, ECE 411, ECE 325; ECE 440 is the core lab that gates ECE 364D and senior design.',
   });
 })();

@@ -12,23 +12,26 @@ Upload `dist/foursight-1.0.0.zip`.
 **Name** (from the manifest): FourSight: Degree Flowchart Planner
 
 **Summary** (from the manifest, 132 characters max):
-Plan all four years of a Cockrell engineering degree on an interactive prerequisite flowchart.
+Plan all four years of your degree on a prerequisite flowchart: UT Cockrell templates, or a plan built from any school's curriculum.
 
 **Description:**
 
 ```
 FourSight lays out every semester of a UT Austin Cockrell School of Engineering B.S. degree as one interactive flowchart, so you can see all four years at once and catch prerequisite problems before registration.
 
-Pick your program from the menu: Aerospace, Architectural, Biomedical, Chemical, Civil, Computational, Electrical and Computer (all eight concentrations), Environmental, Geosystems, Mechanical or Petroleum Engineering. Each starts from a suggested eight-semester plan built from the 2026-28 catalog.
+Pick your program from the menu: Aerospace, Architectural, Biomedical, Chemical, Civil, Computational, Electrical and Computer (all eight concentrations), Environmental, Geosystems, Mechanical or Petroleum Engineering. Each starts from a suggested eight-semester plan built from the 2026-28 catalog. Add any of 45 UT minors and plan its courses alongside your degree.
+
+Not at UT? Upload your school's degree plan (PDF, text or CSV) and FourSight lays out your courses by semester, checks the credit hours against the file, and can read a prerequisite flowchart to draw your prerequisite chains. You can add a minor from its catalog page too, or start from a blank plan.
 
 • Drag courses between semesters. Broken prerequisites turn red right away, with a list of what to fix.
 • Hover or pin a course to trace its prerequisite chain: the courses it needs and the courses it unlocks.
 • Warnings for courses past their on-time limit or placed in a term they aren't offered.
 • A live degree audit shows hours and courses completed in each requirement area.
-• Import your transcript (PDF or pasted text) to check off completed courses and reschedule the rest.
+• Import your UT transcript (PDF or pasted text) to check off completed courses and reschedule the rest.
+• Check off a whole semester at once, recolor course types, and add your own courses with any course number.
 • Add, edit or delete courses, add summer or extra terms, and reset to the suggested plan at any time.
 
-Private by design: FourSight runs entirely in your browser. Your plan is saved only on your computer, and your transcript is read on your device and never uploaded. FourSight needs no special permissions and collects no data.
+Private by design: FourSight runs entirely in your browser. Your plan is saved only on your computer, and your transcript, curriculum, flowchart and minor files are read on your device and never uploaded. FourSight needs no special permissions and collects no data.
 
 FourSight is an independent student planning tool. It is not affiliated with or endorsed by The University of Texas at Austin, and it is not an official degree audit. Always confirm your plan with the Interactive Degree Audit and your department's advising office.
 ```
@@ -56,7 +59,7 @@ FourSight is a degree planner: it shows a UT Austin engineering student's four-y
 
 **Are you using remote code?** No, I am not using remote code. (pdf.js and the Sora font are bundled in the package.)
 
-**Data usage:** leave every data type unchecked. FourSight collects and transmits no user data: plans are stored in the browser's local storage on the student's own computer, and transcripts are read in the browser and never sent anywhere.
+**Data usage:** leave every data type unchecked. FourSight collects and transmits no user data: plans are stored in the browser's local storage on the student's own computer, and transcripts, curriculum, flowchart and minor files are read in the browser and never sent anywhere.
 
 Then tick all three certifications:
 - I do not sell or transfer user data to third parties, outside of the approved use cases

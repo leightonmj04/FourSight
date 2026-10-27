@@ -29,14 +29,14 @@ FS.define({
       note: 'Twelve hours: two to four Section I courses (E S 369N; PGE 323M, 364, 376; PGE 379 topics such as artificial lift, facilities management, EOR, hydraulic fracturing, geothermal, carbon capture and storage, subsurface machine learning), up to two Section II courses (related technical: C E 370K, 374K; COE 321K; C S 323E, 367; GEO 330K, 346C, 347D, 376L, 376S, 377K, 420K, 468K, 476K; M 340L, 341, 346, 348, 368K, 427L; PGE 379.8, 363, 371), and at most one Section III course (CHE 359; FIN, I B, LEB or MAN 320F; M E 363M). Only one oil-and-gas-law topic counts, and only one of PGE 363 or 371. The PGE undergraduate advisor approves electives before you enroll.' }),
   },
   plan: [
-    ['M408C', 'CH301', 'GEO303', 'PGE301', 'RHE306'],
-    ['M408D', 'CH302', 'PHY303K', 'PHY105M', 'UGS', 'GOV310L'],
+    ['M408C', 'CH301', 'GEO303', 'RHE306', 'GOV310L'],
+    ['PGE301', 'M408D', 'CH302', 'PHY303K', 'PHY105M', 'UGS'],
     ['M427J', 'PHY303L', 'PHY105N', 'EM306', 'PGE326', 'PGE311'],
-    ['EM319', 'PGE427', 'PGE322K', 'PGE333T', 'GEO316P'],
-    ['PGE424', 'PGE323K', 'PGE430', 'PGE338', 'E316'],
-    ['PGE323L', 'PGE358', 'PGE362', 'PGE334', 'PGE365'],
-    ['PGE373L', 'PETE1', 'PETE2', 'VAPA', 'AMHIST'],
-    ['PETE3', 'PETE4', 'GOV312', 'USHIST', 'SBS'],
+    ['EM319', 'PGE322K', 'PGE333T', 'GEO316P', 'USHIST'],
+    ['PGE427', 'PGE424', 'E316', 'VAPA', 'PETE4'],
+    ['PGE323K', 'PGE430', 'PGE358', 'PETE3', 'SBS'],
+    ['PGE338', 'PGE323L', 'PGE362', 'PETE2', 'GOV312'],
+    ['PGE334', 'PGE365', 'PGE373L', 'PETE1', 'AMHIST'],
   ],
   pools: {
     tech: { codes: ['E S 369N', 'PGE 323M', 'PGE 364', 'PGE 376', 'PGE 379', 'PGE 679HA', 'PGE 679HB', 'C E 370K', 'C E 374K', 'COE 321K', 'C S 323E', 'C S 367', 'GEO 330K', 'GEO 346C', 'GEO 347D', 'GEO 376L', 'GEO 376S', 'GEO 377K', 'GEO 420K', 'GEO 468K', 'GEO 476K', 'GEO 371T', 'M 340L', 'M 341', 'M 346', 'M 348', 'M 368K', 'M 427L', 'PGE 363', 'PGE 371', 'CHE 359', 'FIN 320F', 'I B 320F', 'LEB 320F', 'MAN 320F', 'M E 363M'] },
@@ -44,7 +44,7 @@ FS.define({
   notes: [
     'Critical path: PGE 326, PGE 427, PGE 323K, PGE 323L, PGE 373L. Two feeder chains join the capstone: E M 306, E M 319, PGE 430, PGE 362; and GEO 316P with PGE 333T, then PGE 424, PGE 358.',
     'Every degree course must be letter-graded with a C- or better.',
-    'The department\'s degree requirements page still lists 2024-26 flowcharts and elective lists as current. The suggested semester order here is FourSight\'s, built to meet every prerequisite.',
+    'The department\'s degree requirements page still lists 2024-26 flowcharts and elective lists as current. The suggested semester order here is FourSight\'s, built to meet every prerequisite and to spread engineering courses evenly across the four years.',
   ],
   links: [
     { label: 'Catalog page', url: 'https://catalog.utexas.edu/undergraduate/programs/petroleum-engineering-bspe/' },
