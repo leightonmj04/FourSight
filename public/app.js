@@ -1915,6 +1915,20 @@
     } catch (_) { return 0; }
   }
 
+  // The school and major of a plan built from a file can be corrected later.
+  function editPlanDetails() {
+    openModal(`<h2 id="modalTitle">School and major</h2><p class="m-sub">These label your plan built from ${esc(P.def.source)}.</p>` +
+      detailsForm({ kind: 'major', school: P.def.school, name: P.def.program, modal: 'Save' }));
+    wireDetails($('modalBody'), 'major', (school, major) => {
+      P.def.school = school;
+      P.def.program = major;
+      try { localStorage.setItem(ownKey(P.id), JSON.stringify(P.def)); } catch (_) { /* ignore */ }
+      FSP[P.id] = ownProgram(P.id, P.def);
+      closeModal();
+      selectProgram(P.id);
+    });
+  }
+
   // Options follow FS.order; ECE's concentrations share an option group. UT students can also keep their own plan.
   function fillProgramSelect() {
     $('programSelect').innerHTML = window.FS.order.map((o) => (o.group
@@ -1951,7 +1965,9 @@
       openModal(`<h2 id="modalTitle">${esc(P.def.source ? P.name : 'Your own plan')}</h2>` +
         `<p class="m-sub">${esc(P.own && P.def.school ? `${P.def.school}. ` : '')}${esc(P.degree)}.</p>` +
         `<ul class="pn-notes">${P.notes.map((n) => `<li>${esc(n)}</li>`).join('')}` +
-        `<li>FourSight is an independent student planning tool and not an official degree audit. Confirm your plan with your school's advising office.</li></ul>`);
+        `<li>FourSight is an independent student planning tool and not an official degree audit. Confirm your plan with your school's advising office.</li></ul>` +
+        (P.def.source ? `<div class="m-actions"><button class="btn" id="pnEdit">Change school or major</button></div>` : ''));
+      if ($('pnEdit')) $('pnEdit').addEventListener('click', editPlanDetails);
       return;
     }
     openModal(`<h2 id="modalTitle">${esc(programName())}</h2>` +
@@ -2743,25 +2759,50 @@
       const rows = typeof src === 'string' ? window.Curriculum.rowsFromText(src) : await window.Curriculum.read(src);
       const m = window.Curriculum.parseMinor(rows);
       if (!m.count) throw new Error(`FourSight could not find any courses in ${name}. It looks for course numbers like “ACCT 2301” under headings like “Required Courses” or “Choose two of the following”. If this is a scanned PDF, paste its text instead.`);
-      // A file without a title is named after itself ("data-science-minor.pdf").
-      let full = m.name, short = m.shortName;
-      if (short === 'Minor' && typeof src !== 'string') {
-        short = name.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' ').replace(/\bminor\b/i, '').trim()
-          .replace(/\b([a-z])([a-z]*)/gi, (w, a, b) => (w.length <= 3 ? w.toUpperCase() : a.toUpperCase() + b)) || 'Minor';
-        full = `${short} Minor`;
-      }
-      S.minor = {
-        id: `own-${Date.now().toString(36)}`, own: true, name: full, shortName: short, totalHours: m.totalHours,
-        statedTotal: m.statedTotal, groupHours: m.groupHours, source: name, groups: m.groups,
-      };
+      // The student names the school and the minor before it is added.
+      const detected = m.shortName !== 'Minor' ? m.shortName : '';
+      const school = P.def.school || lastSchool();
+      openModal(`<h2 id="modalTitle">Which school and minor is this?</h2>` +
+        `<p class="m-sub">FourSight found ${m.count} course${m.count === 1 ? '' : 's'} (${m.totalHours} hours) in ${esc(name)}. Your school and the minor\u2019s name label it in your plan.</p>` +
+        detailsForm({
+          kind: 'minor', school, name: detected, modal: 'Add minor',
+          schoolHint: P.def.school ? 'From your plan. Change it if the minor is from a different school.' : school ? 'From your last upload.' : '',
+          nameHint: detected ? 'Read from your file. Change it if it\u2019s wrong.' : '',
+        }));
+      wireDetails($('modalBody'), 'minor', (schoolName, minorName) => {
+        const { full, short } = minorLabels(minorName);
+        S.minor = {
+          id: `own-${Date.now().toString(36)}`, own: true, name: full, shortName: short, school: schoolName, totalHours: m.totalHours,
+          statedTotal: m.statedTotal, groupHours: m.groupHours, source: name, groups: m.groups,
+        };
+        CATS = programCats();
+        save();
+        buildLegend();
+        paint();
+        showOwnMinorPlanner();
+      }, () => showOwnMinorPicker());
+    } catch (err) {
+      showOwnMinorPicker(err && err.message ? err.message : String(err));
+    }
+  }
+
+  // "Entrepreneurship" -> Entrepreneurship Minor; "Minor in Data Science" keeps its wording.
+  function minorLabels(text) {
+    const short = text.replace(/^minor\s+(?:in|of)\s+/i, '').replace(/\s+minor$/i, '').replace(/^minor:?\s*/i, '').trim() || text;
+    return { full: /\bminor\b/i.test(text) ? text : `${short} Minor`, short };
+  }
+  function editMinorDetails() {
+    openModal(`<h2 id="modalTitle">School and minor</h2><p class="m-sub">These label the minor from ${esc(S.minor.source)}.</p>` +
+      detailsForm({ kind: 'minor', school: S.minor.school || P.def.school || '', name: S.minor.shortName, modal: 'Save' }));
+    wireDetails($('modalBody'), 'minor', (school, minorName) => {
+      const { full, short } = minorLabels(minorName);
+      Object.assign(S.minor, { name: full, shortName: short, school });
       CATS = programCats();
       save();
       buildLegend();
       paint();
       showOwnMinorPlanner();
-    } catch (err) {
-      showOwnMinorPicker(err && err.message ? err.message : String(err));
-    }
+    }, () => showOwnMinorPlanner());
   }
 
   // ---- the planner for a minor from a file
@@ -2795,7 +2836,8 @@
     const totalNote = m.statedTotal && m.groupHours && m.statedTotal !== m.groupHours
       ? `<p class="m-check warn">${ICON.alert}<span>${esc(m.source)} says the minor is ${m.statedTotal} hours, but the requirements FourSight found add up to ${m.groupHours}. Check the catalog for requirements it didn’t list, and add those courses with + Add course.</span></p>` : '';
     openModal(`<div id="mnPlanner"><h2 id="modalTitle">${esc(m.name)}</h2>` +
-      `<div class="mn-head"><p class="m-sub">From ${esc(m.source)} · ${m.totalHours} hours</p>` +
+      `<div class="mn-head"><p class="m-sub">${m.school ? `${esc(m.school)} \u00b7 ` : ''}${m.totalHours} hours \u00b7 from ${esc(m.source)} ` +
+        `<button class="link-btn" id="mnEditName">Edit</button></p>` +
         `<div class="mn-progress"><div class="ms-track"><i class="planned" style="width:${pct(ev.planned)}%"></i><i class="done" style="width:${pct(ev.done)}%"></i></div>` +
         `<div class="ms-nums"><b>${ev.planned}</b> of ${m.totalHours} hrs planned · <b>${ev.done}</b> completed</div></div></div>` +
       totalNote +
@@ -2815,6 +2857,7 @@
       for (const g of m.groups) if (g.type === 'all') for (const c of g.courses) if (!ownPlanIdFor(c)) addOwnMinorCourse(c);
       showOwnMinorPlanner();
     });
+    $('mnEditName').addEventListener('click', editMinorDetails);
     $('mnRemove').addEventListener('click', confirmRemoveMinor);
     $('mnChange').addEventListener('click', () => {
       if (Object.values(S.custom).some((c) => c.cat === 'minor')) { confirmRemoveMinor(); return; }
@@ -2941,7 +2984,8 @@
     try { localStorage.setItem('dp.started', '1'); } catch (_) { /* ignore */ }
     $('welcome').classList.remove('open');
     document.body.classList.remove('welcoming');
-    setTimeout(() => { if (!$('welcome').classList.contains('open')) $('welcome').hidden = true; }, 350);
+    // The last step leaves the page once hidden, so its form fields never shadow a dialog's.
+    setTimeout(() => { if (!$('welcome').classList.contains('open')) { $('welcome').hidden = true; $('wcStage').innerHTML = ''; } }, 350);
     requestAnimationFrame(() => { drawLines(); updateSemnav(); loop.kick(); });
   }
   $('wcClose').addEventListener('click', hideWelcome);
@@ -2961,8 +3005,8 @@
     stage.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => wcChoose(b.dataset.go)));
     stage.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', wcBack));
     stage.querySelectorAll('[data-major]').forEach((b) => b.addEventListener('click', () => { hideWelcome(); selectProgram(b.dataset.major); }));
-    // Keyboard users start on the heading; the paste box takes focus so they can type right away.
-    const box = stage.querySelector('textarea');
+    // Keyboard users start on the heading; the paste box and the details form take focus so they can type right away.
+    const box = stage.querySelector('textarea, #dtForm input');
     if (box) box.focus({ preventScroll: true });
     else { const h = $('wcTitle'); h.tabIndex = -1; h.focus({ preventScroll: true }); }
   }
@@ -3012,6 +3056,49 @@
     if (file) importCurriculum(file, id);
   });
 
+  // ---- naming an uploaded major or minor
+  // A plan or minor built from a file must say which school it is from and what it is called. FourSight fills in
+  // what the file states (or the school from the student's plan or last upload); the student confirms or types the
+  // rest before the plan or minor is created.
+  const lastSchool = () => { try { return localStorage.getItem('dp.school') || ''; } catch (_) { return ''; } };
+  const tidyLabel = (t) => String(t || '').replace(/[<>"]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  function detailsForm({ kind, school, name, schoolHint, nameHint, modal }) {
+    const field = (id, label, value, ph, hint) =>
+      `<label class="dt-field"><span>${label}</span><input id="${id}" maxlength="80" autocomplete="off" required placeholder="${esc(ph)}" value="${esc(value || '')}">` +
+      `${hint ? `<small>${esc(hint)}</small>` : ''}</label>`;
+    return `<form class="dt-form" id="dtForm" novalidate>` +
+      field('dtSchool', 'School', school, 'For example, Texas A&M University', schoolHint) +
+      field('dtName', kind === 'minor' ? 'Minor' : 'Major', name, kind === 'minor' ? 'For example, Entrepreneurship' : 'For example, Chemical Engineering', nameHint) +
+      `<p class="ac-error" id="dtErr" hidden></p>` +
+      (modal
+        ? `<div class="m-actions"><button type="button" class="btn ghost" id="dtCancel">Cancel</button><button type="submit" class="btn primary">${modal}</button></div>`
+        : `<div class="wc-actions"><button type="submit" class="btn primary wc-go">Continue</button></div>`) +
+      `</form>`;
+  }
+  // Both fields are required. The school is remembered for the next upload. `root` holds the form: the welcome
+  // screen or the dialog.
+  function wireDetails(root, kind, done, cancel) {
+    const q = (id) => root.querySelector(`#${id}`);
+    const schoolIn = q('dtSchool'), nameIn = q('dtName'), err = q('dtErr');
+    ([schoolIn, nameIn].find((i) => !i.value.trim()) || nameIn).focus({ preventScroll: true });
+    q('dtForm').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const school = tidyLabel(schoolIn.value), name = tidyLabel(nameIn.value);
+      const missing = [!school && 'your school', !name && `the name of your ${kind}`].filter(Boolean);
+      schoolIn.classList.toggle('invalid', !school);
+      nameIn.classList.toggle('invalid', !name);
+      if (missing.length) {
+        err.textContent = `Enter ${missing.join(' and ')} to continue.`;
+        err.hidden = false;
+        (!school ? schoolIn : nameIn).focus();
+        return;
+      }
+      try { localStorage.setItem('dp.school', school); } catch (_) { /* ignore */ }
+      done(school, name);
+    });
+    if (q('dtCancel')) q('dtCancel').addEventListener('click', cancel || closeModal);
+  }
+
   // Reads a file (or pasted text) into a new own plan. From the welcome screen, progress and errors show there;
   // from the dock, in a dialog.
   async function importCurriculum(src, id) {
@@ -3023,19 +3110,41 @@
       const rows = typeof src === 'string' ? window.Curriculum.rowsFromText(src) : await window.Curriculum.read(src);
       const r = window.Curriculum.parse(rows, { ut: id === 'mine-ut' });
       if (!r.count) throw new Error(`FourSight could not find any courses in ${name}. It looks for course numbers like “CHEM 1311” or “CS 61A”, ideally under semester headings like “Fall Semester” or “Year 1 Spring”. If this is a scanned PDF, copy the text from it and paste it instead.`);
-      startOwn(id, {
-        source: name, school: r.school, program: r.program, courses: r.courses, plan: r.plan, terms: r.terms, prior: r.prior,
+      const def = {
+        source: name, school: null, program: null, courses: r.courses, plan: r.plan, terms: r.terms, prior: r.prior,
         chains: fromWelcome ? W.chains || 'self' : null,
         report: {
           count: r.count, terms: r.plan.filter((t) => t.length).length, assumed: r.assumed, prereqs: r.prereqs, skipped: r.skipped,
           placedByOrder: r.byOrder, hours: r.hours, programTotal: r.programTotal, checks: r.checks, balanced: r.balanced,
           fromChart: r.fromChart, supplemented: r.supplemented,
         },
-      });
-      // A student who chose to upload a flowchart adds it next.
-      if (fromWelcome && W.chains === 'file') return wcGo('flowchart', { data: { count: r.count } });
-      if (fromWelcome) hideWelcome();
-      showCurriculumReport();
+      };
+      // The student names the school and major before the plan is made.
+      const school = r.school || (id === 'mine-ut' ? 'The University of Texas at Austin' : lastSchool());
+      const major = (r.program || '').replace(/,?\s*\b(B\.?S\.?E?|B\.?A\.?|BSE|BBA|BFA|Bachelor of \w+(?: in)?)\b\.?/gi, ' ').replace(/^\s*in\s+/i, '').replace(/\s+/g, ' ').trim();
+      const form = {
+        kind: 'major', school, name: major,
+        schoolHint: r.school ? 'Read from your file. Change it if it\u2019s wrong.' : school ? 'From your last upload. Change it if it\u2019s wrong.' : '',
+        nameHint: major ? 'Read from your file. Change it if it\u2019s wrong.' : '',
+      };
+      const finish = (schoolName, majorName) => {
+        def.school = schoolName;
+        def.program = majorName;
+        startOwn(id, def);
+        // A student who chose to upload a flowchart adds it next.
+        if (fromWelcome && W.chains === 'file') return wcGo('flowchart', { data: { count: r.count } });
+        if (fromWelcome) hideWelcome();
+        showCurriculumReport();
+        return null;
+      };
+      if (fromWelcome) {
+        wcGo('details', { data: { count: r.count, source: name, form } });
+      } else {
+        openModal(`<h2 id="modalTitle">Which school and major is this?</h2>` +
+          `<p class="m-sub">FourSight found ${r.count} course${r.count === 1 ? '' : 's'} in ${esc(name)}. Your school and major label your plan.</p>` +
+          detailsForm({ ...form, modal: 'Build my plan' }));
+      }
+      wireDetails(fromWelcome ? $('wcStage') : $('modalBody'), 'major', finish);
     } catch (err) {
       const msg = err && err.message ? err.message : String(err);
       if (fromWelcome) wcGo('failed', { data: { msg } });
@@ -3231,6 +3340,10 @@
       `<p class="wc-sub">Copy the course list from your degree plan. Semester headings like “Fall Semester” or “Year 2 Spring” help FourSight place each course.</p>` +
       `<textarea class="wc-paste" id="wcPaste" spellcheck="false" placeholder="${esc(PASTE_EXAMPLE)}"></textarea>` +
       `<div class="wc-actions"><button class="btn primary wc-go" id="wcPasteGo">Build my plan</button></div>`,
+    details: ({ count, source, form }) => backBtn() +
+      `<p class="wc-kicker">About your degree</p><h1 id="wcTitle">Which school and major is this?</h1>` +
+      `<p class="wc-sub">FourSight found ${count} course${count === 1 ? '' : 's'} in ${esc(source)}. Your school and major label your plan.</p>` +
+      detailsForm(form),
     chains: () => backBtn() +
       `<p class="wc-kicker">Prerequisite chains</p><h1 id="wcTitle">How should FourSight connect your prerequisites?</h1>` +
       `<div class="wc-choices">` +
