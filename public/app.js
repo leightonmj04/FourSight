@@ -45,6 +45,7 @@
     taken: {},             // slot id -> transcript course that fills it (e.g. TECH1 -> CHE 379)
     prior: [],             // transcript credit outside the 129 hours, e.g. CH 301: { code, title, index, grade }
     fromTranscript: new Set(), // completions that came from a transcript (cleared on reset)
+    claimed: new Set(),    // courses checked off because they were moved into the Credit claimed column
     transcript: null,      // { name, report, scheduled } of the last import
     hover: null,
     catFocus: null,        // course type picked in the dropdown
@@ -131,11 +132,15 @@
   const OLD_CATS = { che: 'major', chem: 'alt' };
 
   // After the plan is replaced (reset or transcript), put added courses back in their old term.
-  function keepCustom(oldPlan) {
+  // The old term is found by season and year, so a Credit claimed column that is gone does not shift the rest;
+  // a course from a term that no longer exists goes to the nearest one.
+  function keepCustom(oldPlan, oldTerms = S.terms) {
     for (const id of Object.keys(S.custom)) {
       if (semOf(S.plan, id) >= 0) continue;
-      const was = Math.max(0, semOf(oldPlan, id));
-      S.plan[Math.min(was, S.plan.length - 1)].push(id);
+      const was = Math.max(0, semOf(oldPlan, id)), wt = oldTerms[was];
+      const same = wt ? S.terms.findIndex((t) => t.kind === wt.kind && t.year === wt.year) : -1;
+      const at = same >= 0 ? same : wt && wt.kind === 'credit' ? 0 : Math.min(was, S.plan.length - 1);
+      S.plan[at].push(id);
     }
   }
   function impliedByChain(edge, edges) {
@@ -158,7 +163,7 @@
 
   // ---------------------------------------------------------------- terms
   const KIND = { fall: 'Fall', winter: 'Winter', spring: 'Spring', summer: 'Summer' };
-  const termName = (t) => (t.kind === 'credit' ? 'AP / Credit by Exam' : `${KIND[t.kind]} ${t.year}`);
+  const termName = (t) => (t.kind === 'credit' ? 'Credit claimed' : `${KIND[t.kind]} ${t.year}`);
   // Winter terms come from quarter-system curricula (fall, winter, spring); they count like falls and springs.
   const isRegular = (t) => t.kind === 'fall' || t.kind === 'spring' || t.kind === 'winter';
   // The regular term after `last`: fall -> spring -> next fall, or fall -> winter -> spring on quarters.
@@ -206,11 +211,15 @@
           terms: saved.terms, plan: upgraded || saved.plan, done: new Set(saved.done || []), upgraded: !!upgraded,
           credit: new Set(saved.credit || []), taken: saved.taken || {}, prior: saved.prior || [],
           fromTranscript: new Set(saved.fromTranscript || []), transcript: saved.transcript || null,
+          claimed: new Set(saved.claimed || []),
         };
       }
     } catch (_) { /* storage unavailable */ }
     applyCourses({});
-    return { terms: defaultTerms(), plan: clone(P.plan), done: new Set(), ...emptyTranscript() };
+    // A plan built from a file that lists credit already claimed starts with those courses checked off.
+    const terms = defaultTerms(), plan = clone(P.plan), ci = terms.findIndex((x) => x.kind === 'credit');
+    const claimed = new Set(ci >= 0 ? plan[ci] : []);
+    return { terms, plan, done: new Set(claimed), claimed, ...emptyTranscript() };
   }
   const emptyTranscript = () => ({ credit: new Set(), taken: {}, prior: [], fromTranscript: new Set(), transcript: null });
 
@@ -250,12 +259,25 @@
     return ids.every((id) => C[id]) && new Set(ids).size === ids.length &&
       Object.keys(C).every((id) => C[id].optional || C[id].custom || ids.includes(id));
   }
+  // Courses in the Credit claimed column count as complete: a course moved in is checked off, and one moved back out
+  // is unchecked again (unless it was checked off before it went in). Unchecking one inside the column sticks.
+  let creditIds = new Set();
+  const creditIndex = () => S.terms.findIndex((t) => t.kind === 'credit');
+  function syncClaimed() {
+    const ci = creditIndex();
+    const now = new Set(ci >= 0 ? S.plan[ci] : []);
+    for (const id of now) if (!creditIds.has(id) && !S.done.has(id)) { S.done.add(id); S.claimed.add(id); }
+    for (const id of creditIds) if (!now.has(id) && S.claimed.has(id)) { S.done.delete(id); S.claimed.delete(id); }
+    for (const id of [...S.claimed]) if (!C[id]) S.claimed.delete(id);
+    creditIds = now;
+  }
   function save() {
+    syncClaimed();
     try {
       localStorage.setItem(planKey(), JSON.stringify({
         terms: S.terms, plan: S.plan, done: [...S.done], credit: [...S.credit], taken: S.taken, prior: S.prior,
         fromTranscript: [...S.fromTranscript], transcript: S.transcript, custom: S.custom, edits: S.edits, removed: S.removed,
-        minor: S.minor, suggested: planHash(P.plan),
+        claimed: [...S.claimed], minor: S.minor, suggested: planHash(P.plan),
       }));
     } catch (_) { /* ignore */ }
   }
@@ -335,6 +357,8 @@
     const st = savedState();
     S.terms = st.terms; S.plan = st.plan; S.done = st.done;
     S.credit = st.credit; S.taken = st.taken; S.prior = st.prior; S.fromTranscript = st.fromTranscript; S.transcript = st.transcript;
+    S.claimed = st.claimed || new Set();
+    creditIds = new Set(creditIndex() >= 0 ? S.plan[creditIndex()] : []);
     renderDock();
     S.selected = null; S.pinned = null; closeDrawer(); $('issues').hidden = true;
     build(true);
@@ -414,7 +438,7 @@
       if (t.kind === 'summer') b.classList.add('summer');
       if (t.kind === 'credit') b.classList.add('credit');
       b.innerHTML = t.kind === 'credit'
-        ? `AP Credit<small>Before Year 1</small><span class="dot"></span>`
+        ? `Credit claimed<small>Before Year 1</small><span class="dot"></span>`
         : `${termName(t)}<small>Year ${t.year}</small><span class="dot"></span>`;
       b.addEventListener('click', () => scroller.toColumn(i));
       tr.appendChild(b);
@@ -428,11 +452,12 @@
     for (const k of Object.keys(pathEl)) delete pathEl[k];
     anims.clear();
 
+    track.classList.toggle('can-claim', !!S.terms[0] && S.terms[0].kind !== 'credit'); // room for the Credit claimed tab
     S.terms.forEach((t, i) => {
       const col = document.createElement('section');
       col.className = `col ${t.kind}` + (isExtra(t) ? ' extra' : '') + (newTerm === t ? ' col-new' : '');
       col.dataset.sem = i;
-      const removable = t.kind === 'summer' || (isExtra(t) && i === S.terms.length - 1);
+      const removable = t.kind === 'summer' || t.kind === 'credit' || (isExtra(t) && i === S.terms.length - 1);
       col.innerHTML =
         `<div class="col-head"><span class="col-title">${t.kind === 'summer' ? ICON.sun : t.kind === 'credit' ? ICON.award : ''}${termName(t)}</span>` +
         `<span class="col-hours"></span><button class="term-check" aria-pressed="false">${ICON.tick}</button>` +
@@ -449,19 +474,27 @@
         add.addEventListener('click', () => addSummer(i));
         col.appendChild(add);
       }
-      if (t.kind !== 'credit') {
-        const addC = document.createElement('button');
-        addC.className = 'add-course';
-        addC.innerHTML = `${ICON.plus}Add course`;
-        addC.addEventListener('click', () => showCourseForm(i));
-        col.querySelector('.col-body').appendChild(addC);
-      }
+      const addC = document.createElement('button');
+      addC.className = 'add-course';
+      addC.innerHTML = `${ICON.plus}Add course`;
+      addC.addEventListener('click', () => showCourseForm(i));
+      col.querySelector('.col-body').appendChild(addC);
       const rm = col.querySelector('.term-remove');
       if (rm) rm.addEventListener('click', () => removeTerm(i));
       col.querySelector('.term-check').addEventListener('click', () => toggleTerm(i));
       columnsEl.appendChild(col);
       colEl.push(col);
     });
+    // Left of the first semester, a tab centered on the flowchart opens a Credit claimed column.
+    if (S.terms[0] && S.terms[0].kind !== 'credit') {
+      const claim = document.createElement('button');
+      claim.className = 'add-claim';
+      claim.innerHTML = `<span class="claim-plus">${ICON.plus}</span><span class="claim-text">Credit claimed</span>`;
+      claim.title = 'Add a column for courses you already have credit for';
+      claim.setAttribute('aria-label', 'Add a Credit claimed column for courses you already have credit for');
+      claim.addEventListener('click', addCreditColumn);
+      columnsEl.appendChild(claim);
+    }
     // Ghost column at the end for adding another fall or spring.
     const next = nextRegular();
     const addCol = document.createElement('div');
@@ -475,7 +508,7 @@
       const band = document.createElement('div');
       band.className = 'band' + (y > 4 ? ' extra' : '');
       band.dataset.year = y;
-      band.textContent = y === 0 ? 'Incoming credit' : `Year ${y}`;
+      band.textContent = y === 0 ? 'Before Year 1' : `Year ${y}`;
       if (y === 0) band.classList.add('credit');
       bandsEl.appendChild(band);
     }
@@ -545,6 +578,7 @@
       const body = colEl[si].querySelector('.col-body');
       const addBtn = body.querySelector('.add-course');
       sem.forEach((id) => body.insertBefore(cardEl[id], addBtn));
+      colEl[si].classList.toggle('empty', !sem.length);
     });
   }
 
@@ -1256,7 +1290,7 @@
 
   function revertToSuggested({ keepDone = true, keepAdded = true } = {}) {
     const before = snapshot();
-    const oldPlan = S.plan;
+    const oldPlan = S.plan, oldTerms = S.terms;
     // The minor goes too: the suggested plan is the degree alone. Courses added by hand stay if asked.
     const hadMinor = !!S.minor;
     const custom = keepAdded ? Object.fromEntries(Object.entries(S.custom).filter(([id]) => !isMinorCard(id))) : {};
@@ -1266,11 +1300,13 @@
     applyCourses({ custom });
     S.terms = defaultTerms();
     S.plan = clone(P.plan);
-    keepCustom(oldPlan);
+    keepCustom(oldPlan, oldTerms);
     // Undo everything the transcript set; check-offs made by hand stay if asked.
     if (keepDone) { for (const id of S.fromTranscript) S.done.delete(id); } else S.done = new Set();
     for (const id of [...S.done]) if (!C[id]) S.done.delete(id);
     Object.assign(S, emptyTranscript());
+    // Courses checked off by the Credit claimed column stay checked if asked, like any other check-off.
+    S.claimed = new Set(); creditIds = new Set();
     if (S.pinned && !C[S.pinned]) S.pinned = null;
     if (S.selected && !C[S.selected]) closeDrawer();
     rebuild(before, 650);
@@ -1300,6 +1336,7 @@
     const t = { kind: 'summer', year: S.terms[springIndex].year };
     S.terms.splice(springIndex + 1, 0, t);
     S.plan.splice(springIndex + 1, 0, []);
+    for (const pc of S.prior) if (pc.index > springIndex) pc.index++;
     newTerm = t;
     rebuild(before);
     scroller.toColumn(Math.max(0, springIndex));
@@ -1318,7 +1355,20 @@
     const before = snapshot();
     S.terms.splice(i, 1);
     S.plan.splice(i, 1);
+    for (const pc of S.prior) if (pc.index > i) pc.index--;
     rebuild(before);
+  }
+  // The Credit claimed column always comes first, before Year 1.
+  function addCreditColumn() {
+    if (creditIndex() >= 0) return;
+    const before = snapshot();
+    const t = { kind: 'credit', year: 0 };
+    S.terms.unshift(t);
+    S.plan.unshift([]);
+    for (const pc of S.prior) pc.index++;
+    newTerm = t;
+    rebuild(before);
+    scroller.target = 0;
   }
 
   // ---------------------------------------------------------------- adding your own course
@@ -1725,7 +1775,7 @@
     for (const id of S.fromTranscript) S.done.delete(id);
     const oldPlan = S.plan;
     S.terms = r.terms; S.plan = r.plan;
-    keepCustom(oldPlan);
+    keepCustom(oldPlan, []); // transcript terms are by calendar, so added courses keep their place by position
     for (const id of r.done) S.done.add(id);
     S.fromTranscript = new Set(r.done);
     S.credit = r.credit; S.taken = r.taken; S.prior = r.prior;
@@ -1939,11 +1989,15 @@
     });
   }
 
-  // Options follow FS.order; ECE's concentrations share an option group. UT students can also keep their own plan.
+  // Majors grouped by college, the way the minor picker groups minors. Within a college, options follow FS.order.
+  // A program with no college field is in Engineering, where FourSight started.
+  const collegeOf = (o) => FSP[o.group ? o.ids[0] : o.id].college || 'Engineering';
+  const majorColleges = () => [...new Set(window.FS.order.map(collegeOf))];
   function fillProgramSelect() {
-    $('programSelect').innerHTML = window.FS.order.map((o) => (o.group
-      ? `<optgroup label="${o.group}">${o.ids.map((id) => `<option value="${id}">ECE: ${FSP[id].concentration}</option>`).join('')}</optgroup>`
-      : `<option value="${o.id}">${FSP[o.id].name}</option>`)).join('') +
+    $('programSelect').innerHTML = majorColleges().map((col) => `<optgroup label="${esc(col)}">` +
+      window.FS.order.filter((o) => collegeOf(o) === col).map((o) => (o.group
+        ? o.ids.map((id) => `<option value="${id}">ECE: ${FSP[id].concentration}</option>`).join('')
+        : `<option value="${o.id}">${esc(FSP[o.id].name)}</option>`)).join('') + `</optgroup>`).join('') +
       `<optgroup label="Your own plan"><option value="mine-ut">${FSP['mine-ut'] && FSP['mine-ut'].def.source ? esc(`Built from ${FSP['mine-ut'].def.source}`) : 'Your own courses (no template)'}</option></optgroup>`;
     if (P) $('programSelect').value = P.id;
   }
@@ -1983,22 +2037,24 @@
     openModal(`<h2 id="modalTitle">${esc(programName())}</h2>` +
       `<p class="m-sub">${esc(P.degree)}, ${esc(P.dept)}. ${P.hours} hours under the 2026-28 catalog.</p>` +
       `<ul class="pn-notes">${(P.notes || []).map((n) => `<li>${esc(n)}</li>`).join('')}` +
-      `<li>Prerequisites come from the 2025-26 course listings, because the 2026-27 listings leave prerequisite text out. ` +
-      `Students may follow any catalog in effect while they were enrolled in Cockrell. Confirm your plan with the Interactive Degree Audit and your department's advising office.</li>` +
+      (isBusiness() ? `<li>Confirm your plan with the Interactive Degree Audit and the BBA Program Office.</li>`
+        : `<li>Prerequisites come from the 2025-26 course listings, because the 2026-27 listings leave prerequisite text out. ` +
+      `Students may follow any catalog in effect while they were enrolled in Cockrell. Confirm your plan with the Interactive Degree Audit and your department's advising office.</li>`) +
       `<li>FourSight is an independent student planning tool. It is not affiliated with or endorsed by The University of Texas at Austin, and it is not an official degree audit.</li></ul>` +
       `<h3 class="pn-h">Sources</h3><ul class="pn-links">${(P.links || []).map((l) => `<li><a href="${l.url}" target="_blank" rel="noopener">${esc(l.label)}</a></li>`).join('')}</ul>`);
   });
 
   // ---------------------------------------------------------------- minors
-  // UT Austin minors (data/minors.json: 45 minors and 701 courses with prerequisite trees, 2026-27 catalog) and
+  // UT Austin minors (data/minors.json: every minor in the 2026-27 catalog, grouped by college, with prerequisite trees) and
   // their evaluation engine (lib/foursight-minors.js) load the first time a minor is shown. A plan can include one
   // minor. Its courses become cards of the "minor" course type with their catalog prerequisites; courses already in
   // the degree plan count toward the minor wherever the minor accepts them.
   let MN = null, mnLoading = null;
+  const isBusiness = () => !!P && P.college === 'Business';
   const OUTSIDE = {};   // ids of catalog prerequisites that are not in the plan -> readable name
-  // Every FourSight program is in the Cockrell School, so prerequisites that differ by student group follow the
-  // engineering branch.
-  const ASSUME = { conditional: { 'engineering majors': true, others: true } };
+  // Prerequisites that differ by student group follow the student's college: the engineering branch for Cockrell
+  // programs, the general one for business majors.
+  const ASSUME = { get conditional() { return isBusiness() ? { 'nonengineering majors': true, 'non-engineering majors': true, others: true } : { 'engineering majors': true, others: true }; } };
 
   function loadMinors() {
     if (MN) return Promise.resolve(MN);
@@ -2053,7 +2109,7 @@
       const code = codesOf(id)[0];
       if (!code) return;
       courses.push({ code, hours: C[id].hrs, status: done ? 'completed' : 'planned', grade: done ? grades[code] || null : null,
-        basis: S.credit.has(id) ? 'credit-by-exam' : 'letter' });
+        basis: S.credit.has(id) ? 'credit-by-exam' : 'letter', minorCard: C[id].cat === 'minor' });
     }));
     for (const pc of S.prior) if (pc.grade) courses.push({ code: pc.code, status: 'completed', grade: pc.grade, basis: pc.grade === 'CR' ? 'credit-by-exam' : 'letter' });
     const standing = hoursCompleted >= 90 ? 'senior' : hoursCompleted >= 60 ? 'junior' : hoursCompleted >= 30 ? 'sophomore' : 'freshman';
@@ -2363,7 +2419,12 @@
     if (entry.allowedMajors) {
       return entry.allowedMajors.some((m) => normMajor(m) === me) ? { ok: true, text: 'Open to your major' } : { ok: false, text: `Not open to ${P.name}` };
     }
-    if (/\(BBA\) students only|^Declared business majors/i.test(t)) return { ok: false, text: 'Business majors only' };
+    // A minor can't be in the field of the student's own major (no Finance minor for Finance majors).
+    const minor = MN && MN.data.minors[entry.id];
+    const excluded = minor && minor.eligibility && minor.eligibility.excludedMajors;
+    if (excluded && excluded.some((m) => normMajor(m) === me)) return { ok: false, text: `Not open to ${P.name}` };
+    if (/\(BBA\) students only|^Declared business majors/i.test(t)) return isBusiness() ? { ok: true, text: 'Open to your major' } : { ok: false, text: 'Business majors only' };
+    if (isBusiness() && /non-business students only/i.test(t)) return { ok: false, text: 'Non-business majors only' };
     if (/^Declared economics majors/i.test(t)) return { ok: false, text: 'Economics majors only' };
     if (/all undergraduates|any major|non-business|UT Austin undergraduates|non-geosciences|business and non-business/i.test(t)) return { ok: true, text: 'Open to your major' };
     return { ok: null, text: 'Check eligibility' };
@@ -2611,13 +2672,17 @@
       const add = () => {
         const code = input.value.toUpperCase().replace(/\s+/g, ' ').trim().replace(/^([A-Z]+)(\d)/, '$1 $2');
         const r = code && courseRec(code);
-        const subj = r ? r.base.replace(/\s\d{3}[A-Z]{0,2}$/, '') : '';
-        const msg = !r ? `${code || 'That'} isn't in the 2026-27 catalog data. Use a number like ${filter.subjects ? `${filter.subjects[0]} 3xx` : 'MKT 337'}.`
+        // Open-choice minors ("Hours chosen from: History") take any course in the subject, listed in the data or not.
+        const typed = !r && filter.openCatalog && /^[A-Z][A-Z ]{0,5} ?\d{3}[A-Z]{0,2}(\.\d+)?$/.test(code);
+        const base = r ? r.base : MN.FM.splitTopic(code).base;
+        const subj = (r || typed) ? base.replace(/\s\d{3}[A-Z]{0,2}$/, '') : '';
+        const upperNum = (/\d(\d\d)[A-Z]{0,2}$/.exec(base) || [])[1] >= 20;
+        const msg = !r && !typed ? `${code || 'That'} isn't in the 2026-27 catalog data. Use a number like ${filter.subjects ? `${filter.subjects[0]} 3xx` : 'MKT 337'}.`
           : filter.subjects && !filter.subjects.includes(subj) ? `This requirement takes ${filter.subjects.join(', ')} courses.`
-          : filter.upperDivision && r.rec.level !== 'Upper Division' ? 'This requirement takes upper-division courses.'
-          : filter.coreCode && r.rec.coreCode !== filter.coreCode ? `This requirement takes courses that count for ${filter.coreArea || `core area ${filter.coreCode}`}.` : '';
+          : filter.upperDivision && (r ? r.rec.level !== 'Upper Division' : !upperNum) ? 'This requirement takes upper-division courses.'
+          : r && filter.coreCode && r.rec.coreCode !== filter.coreCode ? `This requirement takes courses that count for ${filter.coreArea || `core area ${filter.coreCode}`}.` : '';
         if (msg) { err.textContent = msg; err.hidden = false; return; }
-        requestMinorCourse(r.topic ? `${r.base}.${r.topic}` : code);
+        requestMinorCourse(r && r.topic ? `${r.base}.${r.topic}` : code);
       };
       box.querySelector('button').addEventListener('click', add);
       input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') add(); });
@@ -3327,12 +3392,12 @@
       const saved = (id) => { try { return !!localStorage.getItem(`dp.plan.${id}`); } catch (_) { return false; } };
       const tag = (id) => (saved(id) ? '<span class="wc-saved">Saved plan</span>' : '');
       return backBtn() +
-        `<p class="wc-kicker">Cockrell School of Engineering · 2026–28 catalog</p><h1 id="wcTitle">Which degree are you pursuing?</h1>` +
-        `<div class="wc-majors">` + window.FS.order.map((o) => (o.group
+        `<p class="wc-kicker">UT Austin · 2026–28 catalog</p><h1 id="wcTitle">Which degree are you pursuing?</h1>` +
+        majorColleges().map((col) => `<h2 class="wc-college">${esc(col)}</h2><div class="wc-majors">` + window.FS.order.filter((o) => collegeOf(o) === col).map((o) => (o.group
           ? `<div class="wc-major wc-group"><strong>${esc(o.group)}</strong><small>${FSP[o.ids[0]].hours} hours · choose a concentration</small><div class="wc-concs">` +
             o.ids.map((id) => `<button class="wc-conc" data-major="${id}">${esc(FSP[id].concentration)}${tag(id)}</button>`).join('') + `</div></div>`
           : `<button class="wc-major" data-major="${o.id}"><strong>${esc(FSP[o.id].name)}</strong><small>${FSP[o.id].hours} hours</small>${tag(o.id)}</button>`)).join('') +
-        `</div>`;
+        `</div>`).join('');
     },
     other: () => backBtn() +
       `<p class="wc-kicker">Any college or university</p><h1 id="wcTitle">How would you like to start?</h1>` +
@@ -3437,10 +3502,12 @@
     const PW = 612, PH = 792, M = 42, CW = PW - 2 * M, GAP = 28, ROWPAD = 5, LH = 10, FLOOR = PH - 50;
     const terms = scheduledTerms();
     const quarters = S.terms.some((t) => t.kind === 'winter');
-    const HEAD = { fall: quarters ? 'Fall Quarter' : 'Fall Semester', winter: 'Winter Quarter', spring: quarters ? 'Spring Quarter' : 'Spring Semester', summer: 'Summer Session' };
+    const HEAD = { fall: quarters ? 'Fall Quarter' : 'Fall Semester', winter: 'Winter Quarter', spring: quarters ? 'Spring Quarter' : 'Spring Semester', summer: 'Summer Session', credit: 'Credit Claimed' };
     const sumHrs = (ids) => ids.reduce((n, id) => n + (+C[id].hrs || 0), 0);
-    const total = terms.reduce((n, i) => n + sumHrs(S.plan[i]), 0);
-    const all = terms.flatMap((i) => S.plan[i]).map(exportRow);
+    // Credit claimed counts toward the degree, so the program total includes it.
+    const total = sumHrs(S.plan.flat());
+    const ci = S.terms.findIndex((t) => t.kind === 'credit');
+    const all = S.plan.flat().map(exportRow);
     let pg, y;
     const newPage = () => {
       pg = D.page(PW, PH);
@@ -3504,12 +3571,20 @@
           }
           ry += rh;
         });
-        const label = t.kind === 'summer' ? 'Summer total' : quarters ? 'Quarter total' : 'Semester total';
+        const label = t.kind === 'credit' ? 'Claimed total' : t.kind === 'summer' ? 'Summer total' : quarters ? 'Quarter total' : 'Semester total';
         pg.text(label, x + 8, ry + 14, { size: 8, bold: true, color: PDF_MUTED });
         pg.text(fmtHrs(sumHrs(S.plan[ti])), x + b.w - 10, ry + 14, { size: 8.5, bold: true, color: PDF_INK, align: 'right' });
       });
       y += b.h + 10;
     };
+    // Credit already claimed comes first, as it does left of the first semester in the app.
+    if (ci >= 0 && S.plan[ci].length) {
+      const b = band([ci], 2);
+      pg.text('Before Year 1', M, y + 10, { size: 11, bold: true, color: PDF_ACCENT });
+      y += 20;
+      drawBand(b);
+      y += 6;
+    }
     const years = [...new Set(terms.map((i) => S.terms[i].year))].sort((a, b) => a - b);
     for (const yr of years) {
       const idx = terms.filter((i) => S.terms[i].year === yr);
@@ -3537,21 +3612,6 @@
       checkMark(pg, M + 4, y + 13);
       pg.text('marks a course you have completed', M + 11, y + 15.5, { size: 7.5, color: PDF_MUTED });
       y += 16;
-    }
-    // Credit by exam is already earned, so it sits outside the semesters.
-    const ci = S.terms.findIndex((t) => t.kind === 'credit');
-    if (ci >= 0 && S.plan[ci].length) {
-      const rows = S.plan[ci].map(exportRow);
-      if (y + 40 + rows.length * 15 > FLOOR) newPage();
-      y += 18;
-      pg.text('Credit already earned (AP and credit by exam)', M, y, { size: 9.5, bold: true, color: PDF_INK });
-      y += 6;
-      for (const r of rows) {
-        y += 15;
-        if (r.code) pg.text(r.code, M + 8, y, { size: 8.5, bold: true, color: PDF_INK });
-        pg.text(D.fit(r.title, CW - codeW - 60, 8.5), M + 8 + codeW, y, { size: 8.5, color: PDF_SOFT });
-        pg.text(fmtHrs(r.hrs), PW - M - 10, y, { size: 8.5, color: PDF_INK, align: 'right' });
-      }
     }
     pdfFooters(D, 'Made with FourSight. Upload this PDF to FourSight as a curriculum to rebuild this plan.', M);
     return D;
@@ -3609,7 +3669,7 @@
     });
     cols.forEach((c, k) => {
       const cx = M + k * colW + colW / 2;
-      pg.text(D.fit(c.t.kind === 'credit' ? 'AP Credit' : termName(c.t), colW - 4, 8.5, true), cx, TOP + 9, { size: 8.5, bold: true, color: PDF_INK, align: 'center' });
+      pg.text(D.fit(c.t.kind === 'credit' ? 'Credit claimed' : termName(c.t), colW - 4, 8.5, true), cx, TOP + 9, { size: 8.5, bold: true, color: PDF_INK, align: 'center' });
       pg.text(`${fmtHrs(c.ids.reduce((s, id) => s + (+C[id].hrs || 0), 0))} hrs`, cx, TOP + 19, { size: 6.5, color: PDF_MUTED, align: 'center' });
     });
 
@@ -3772,7 +3832,7 @@
       if (y + 16 + 18 > PH - 40) tablePage(false);
       pg.rect(M, y + 3, PW - 2 * M, 16, { fill: PDF_HEAD });
       const hrs = c.ids.reduce((s, id) => s + (+C[id].hrs || 0), 0);
-      pg.text(`${c.t.kind === 'credit' ? 'AP / Credit by Exam' : termName(c.t)}, ${fmtHrs(hrs)} hours`, M + 4, y + 14.2, { size: 8, bold: true, color: PDF_INK });
+      pg.text(`${termName(c.t)}, ${fmtHrs(hrs)} hours`, M + 4, y + 14.2, { size: 8, bold: true, color: PDF_INK });
       y += 21;
       const ids = c.ids.slice();
       for (const id of ids) {
@@ -3781,7 +3841,7 @@
           r.code ? [r.code] : [],
           D.wrap(r.code ? C[id].title || '' : r.title, COLS[1][1] - 8, 8, !r.code, 2),
           [fmtHrs(r.hrs)],
-          [c.t.kind === 'credit' ? 'AP credit' : termName(c.t)],
+          [c.t.kind === 'credit' ? 'Claimed' : termName(c.t)],
           listLines(itemsOf(id, 'pre'), COLS[4][1] - 8, 8),
           listLines(itemsOf(id, 'co'), COLS[5][1] - 8, 8),
           listLines(leadsOf(id), COLS[6][1] - 8, 8),
@@ -3843,6 +3903,93 @@
     toast(`Downloaded <strong>${esc(name)}</strong>. When you rebuild a plan from your four-year plan PDF, upload this as its prerequisite flowchart.`);
   });
 
+  // ---------------------------------------------------------------- feedback
+  // The Feedback tab on the right edge opens an email-style form. Send posts it through Web3Forms (web3forms.com),
+  // which emails it to the developer; nothing leaves the device until the student presses Send. The access key only
+  // lets a form send to the address it was made for, so it is safe to ship in the page.
+  const FEEDBACK_TO = 'leighton.jones@seven15g.com';
+  const FEEDBACK_URL = 'https://api.web3forms.com/submit';
+  const FEEDBACK_KEY = 'e92457c3-e854-4f52-9d4d-55d235c441a7';
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  const fbDraft = { email: '', problem: '', explain: '' }; // kept while the page is open, so closing the form loses nothing
+  try { fbDraft.email = localStorage.getItem('dp.feedbackEmail') || ''; } catch (_) { /* ignore */ }
+  const SEND_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3 10 14"/><path d="m21 3-7 18-4-7-7-4 18-7Z"/></svg>';
+
+  function showFeedback() {
+    openModal(`<h2 id="modalTitle">Send feedback</h2>` +
+      `<p class="m-sub">Found a problem, or have an idea for FourSight? Write it here like an email and it goes straight to the developer.</p>` +
+      `<form id="fbForm" novalidate>` +
+      `<div class="fb-mail">` +
+      `<div class="fb-row"><span class="fb-label">To</span><span class="fb-to">FourSight developer</span></div>` +
+      `<label class="fb-row" id="fbEmailRow"><span class="fb-label">Your email</span><input id="fbEmail" type="email" autocomplete="email" maxlength="120" required value="${esc(fbDraft.email)}"></label>` +
+      `<label class="fb-row"><span class="fb-label">Header</span><textarea id="fbProblem" rows="2" maxlength="200" required>${esc(fbDraft.problem)}</textarea></label>` +
+      `<label class="fb-body"><span class="fb-label">Body</span><textarea id="fbExplain" rows="9" maxlength="5000" required>${esc(fbDraft.explain)}</textarea></label>` +
+      `</div>` +
+      // Left empty by people; spam bots fill it in.
+      `<input type="text" id="fbHoney" class="fb-honey" tabindex="-1" autocomplete="off" aria-hidden="true">` +
+      `<p class="fb-note">Your email address is only used to reply to you. The name of your plan and your FourSight version are added to help fix the problem.</p>` +
+      `<p class="ac-error" id="fbErr" hidden></p>` +
+      `<div class="m-actions"><button type="button" class="btn ghost" id="fbCancel">Cancel</button>` +
+      `<button type="submit" class="btn primary" id="fbSend">${SEND_ICON}Send</button></div>` +
+      `</form>`);
+    const f = { email: $('fbEmail'), problem: $('fbProblem'), explain: $('fbExplain') };
+    const ready = () => EMAIL_RE.test(f.email.value.trim()) && f.problem.value.trim() && f.explain.value.trim();
+    const refresh = () => { $('fbSend').disabled = !ready(); };
+    for (const [k, el] of Object.entries(f)) {
+      el.addEventListener('input', () => { fbDraft[k] = el.value; $('fbErr').hidden = true; el.closest('.fb-row, .fb-body').classList.remove('invalid'); refresh(); });
+    }
+    refresh();
+    $('fbCancel').addEventListener('click', closeModal);
+    $('fbForm').addEventListener('submit', (ev) => { ev.preventDefault(); sendFeedback(f); });
+    (f.email.value ? (f.problem.value ? f.explain : f.problem) : f.email).focus();
+  }
+
+  async function sendFeedback(f) {
+    const email = f.email.value.trim(), problem = f.problem.value.trim(), explain = f.explain.value.trim();
+    const err = (msg, el) => {
+      $('fbErr').innerHTML = msg; $('fbErr').hidden = false;
+      if (el) { el.closest('.fb-row, .fb-body').classList.add('invalid'); el.focus(); }
+    };
+    if (!EMAIL_RE.test(email)) return err(email ? 'Enter a valid email address so you can get a reply.' : 'Enter your email address so you can get a reply.', f.email);
+    if (!problem) return err('Add a header in a line or two.', f.problem);
+    if (!explain) return err('Add the body of your message in the big box.', f.explain);
+    const send = $('fbSend');
+    send.disabled = true; send.innerHTML = 'Sending\u2026';
+    try {
+      if (!$('fbHoney').value) {
+        const info = exportInfo();
+        const version = (window.chrome && chrome.runtime && chrome.runtime.getManifest) ? `${chrome.runtime.getManifest().version} (Chrome extension)` : 'website';
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 20000);
+        const res = await fetch(FEEDBACK_URL, {
+          method: 'POST', signal: ctrl.signal,
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            access_key: FEEDBACK_KEY, subject: `FourSight feedback: ${problem.replace(/\s+/g, ' ').slice(0, 90)}`,
+            from_name: 'FourSight feedback', email, Header: problem, Body: explain,
+            Plan: [info.program, info.school].filter(Boolean).join(', '), Version: version,
+          }),
+        }).finally(() => clearTimeout(timer));
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || String(data.success) !== 'true') throw new Error(data.message || `HTTP ${res.status}`);
+      }
+      try { localStorage.setItem('dp.feedbackEmail', email); } catch (_) { /* ignore */ }
+      fbDraft.problem = ''; fbDraft.explain = '';
+      $('modalBody').innerHTML = `<div class="fb-sent"><span class="fb-sent-ico">${ICON.ok}</span>` +
+        `<h2 id="modalTitle">Thanks, your feedback was sent</h2>` +
+        `<p class="m-sub">Any reply will go to <strong>${esc(email)}</strong>.</p>` +
+        `<div class="m-actions"><button class="btn primary" id="fbDone">Done</button></div></div>`;
+      $('fbDone').addEventListener('click', closeModal);
+      $('fbDone').focus();
+    } catch (e) {
+      send.disabled = false; send.innerHTML = `${SEND_ICON}Send`;
+      const body = encodeURIComponent(`${explain}\n\n(Plan: ${exportInfo().program})`);
+      err(`FourSight couldn\u2019t send your feedback. Check your internet connection and try again, or ` +
+        `<a href="mailto:${FEEDBACK_TO}?subject=${encodeURIComponent('FourSight feedback: ' + problem)}&body=${body}">email it to ${FEEDBACK_TO}</a>.`);
+    }
+  }
+  $('feedbackBtn').addEventListener('click', showFeedback);
+
   // ---------------------------------------------------------------- boot
   // Until a student has answered the welcome questions once, opening FourSight starts on them, over ChE. A student
   // who saved a plan before the welcome screen existed (Version 1) sees it too, and can close it to return to that
@@ -3853,6 +4000,6 @@
   if (!started) showWelcome({ first: !startProgram });
 
   // Debug handle for testing.
-  window.__dp = { planPdf, chainsPdf, importText, revertToSuggested, showWelcome, importCurriculum, startOwn, selectProgram, S, analyze, EDGES, ALL_EDGES, edgeBroken, rectOf, scroller, toggleDone, addSummer, addRegular, removeTerm, lateFrom,
+  window.__dp = { showFeedback, planPdf, chainsPdf, importText, revertToSuggested, showWelcome, importCurriculum, startOwn, selectProgram, S, analyze, EDGES, ALL_EDGES, edgeBroken, rectOf, scroller, toggleDone, addSummer, addRegular, removeTerm, lateFrom,
     toggleTerm, minors: { removeCard: removeMinorCard, load: loadMinors, choose: chooseMinor, request: requestMinorCourse, add: addMinorCourses, prereqPlan, planIdFor, remove: removeMinor, data: () => MN } };
 })();

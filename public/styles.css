@@ -562,9 +562,40 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
   .dock-actions { margin-left: 0; }
 }
 
-/* ---------- AP credit ---------- */
-.col.credit .col-body { background: rgba(138, 79, 211, .04); box-shadow: inset 0 0 0 1.5px rgba(138, 79, 211, .25); }
-.col.credit .col-title svg { color: var(--alt); }
+/* ---------- Credit claimed ---------- */
+/* The column: a quiet violet panel, dotted rather than dashed or striped like summer terms. */
+.col.credit .col-body { background: rgba(138, 79, 211, .035); box-shadow: inset 0 0 0 1.5px rgba(138, 79, 211, .22); border-radius: 16px; }
+.col.credit.empty .col-body::before {
+  content: "Courses you already have credit for go here. Drag them in, or add one below.";
+  display: block; padding: 22px 16px 6px; font-size: 12.5px; line-height: 1.5; color: var(--ink-3); text-align: center;
+}
+/* The tab that adds it: a tall purple tab in the margin left of the first semester, centered on the flowchart, always
+   in color like the summer pills but upright and solid-edged rather than a dashed pill. */
+.track.can-claim { padding-left: 82px; }
+.add-claim {
+  position: absolute; top: 50%; left: -54px; z-index: 3; transform: translateY(-50%);
+  width: 32px; min-height: 260px; padding: 10px 0 16px; border-radius: 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  background: linear-gradient(180deg, #F6F0FE, #EEE4FC); color: #6B3BB0;
+  border: 1.5px solid rgba(138, 79, 211, .38); box-shadow: 0 2px 8px rgba(138, 79, 211, .10);
+  transition: transform .2s, background .2s, box-shadow .2s, border-color .2s;
+}
+.claim-plus {
+  display: grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 50%;
+  background: #8A4FD3; color: #fff; transition: transform .3s;
+}
+.claim-plus svg { width: 12px; height: 12px; stroke-width: 2.6; }
+.claim-text {
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  font-size: 12px; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap;
+}
+.add-claim:hover, .add-claim:focus-visible {
+  outline: none; transform: translateY(-50%) translateX(2px); border-color: rgba(138, 79, 211, .6);
+  background: linear-gradient(180deg, #F1E7FD, #E6D7FB); box-shadow: 0 8px 20px rgba(138, 79, 211, .22);
+}
+.add-claim:hover .claim-plus { transform: rotate(90deg); }
+.col.credit .col-title { font-size: 14.5px; white-space: nowrap; gap: 5px; }
+.col.credit .col-title svg { width: 15px; height: 15px; color: var(--alt); }
 .band.credit { background: rgba(240, 232, 252, .6); }
 .semnav button.credit { color: #6B3BB0; }
 .card.cr.done::after { content: "AP credit"; color: var(--alt); filter: none; }
@@ -577,7 +608,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 
 /* ---------- Modal ---------- */
 .modal-backdrop {
-  position: fixed; inset: 0; z-index: 40; background: rgba(25, 20, 15, .35); display: grid; place-items: center; padding: 24px 16px;
+  position: fixed; inset: 0; z-index: 70; background: rgba(25, 20, 15, .35); display: grid; place-items: center; padding: 24px 16px;
   opacity: 0; transition: opacity .25s;
 }
 .modal-backdrop.open { opacity: 1; }
@@ -812,7 +843,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .mn-rules li.info svg { color: var(--ink-3); }
 .mn-h { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; margin: 20px 0 10px; }
 .toast {
-  position: fixed; left: 50%; bottom: 96px; transform: translate(-50%, 20px); z-index: 60; max-width: min(560px, calc(100% - 32px));
+  position: fixed; left: 50%; bottom: 96px; transform: translate(-50%, 20px); z-index: 80; max-width: min(560px, calc(100% - 32px));
   background: var(--ink); color: #fff; padding: 12px 16px; border-radius: 12px; font-size: 13.5px; line-height: 1.45;
   box-shadow: var(--shadow-lift); opacity: 0; transition: opacity .25s, transform .3s cubic-bezier(.2, .9, .3, 1.2); pointer-events: none;
 }
@@ -1007,3 +1038,49 @@ button.wc-major:hover { transform: translateY(-2px); border-color: rgba(191, 87,
 .dt-form .wc-actions, .dt-form .m-actions { margin-top: 6px; }
 .dt-form button[type=submit]:disabled { opacity: .45; cursor: not-allowed; }
 .dt-form button[type=submit]:disabled:hover { background: var(--ut); border-color: var(--ut); }
+
+/* ---------- Feedback ---------- */
+/* A tab on the right edge of every screen, the welcome screen included. */
+.fb-tab {
+  position: fixed; right: 0; top: 50%; z-index: 65; transform: translateY(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px 7px 14px 8px;
+  border: 1px solid var(--line); border-right: 0; border-radius: 12px 0 0 12px; background: var(--panel);
+  color: var(--ink-2); box-shadow: -2px 4px 14px rgba(20, 20, 20, .08);
+  transition: padding .2s, color .2s, box-shadow .2s;
+}
+.fb-tab svg { width: 17px; height: 17px; fill: none; stroke: var(--ut); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.fb-tab span { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; font-weight: 700; letter-spacing: .06em; }
+.fb-tab:hover, .fb-tab:focus-visible { padding-right: 11px; color: var(--ut-dark); box-shadow: -4px 6px 20px rgba(191, 87, 0, .18); outline: none; }
+/* The form reads like an email: a To line, the sender, a short Header line and a large Body. */
+.fb-mail { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--panel); }
+.fb-row { display: flex; align-items: flex-start; gap: 14px; padding: 11px 16px; border-bottom: 1px solid var(--line); transition: background .2s; }
+.fb-body { display: block; padding: 12px 16px 14px; transition: background .2s; }
+.fb-row:focus-within, .fb-body:focus-within { background: #FCFAF7; }
+.fb-label { width: 84px; flex: none; padding-top: 2px; font-size: 13px; font-weight: 650; color: var(--ink-3); }
+.fb-body .fb-label { display: block; width: auto; margin-bottom: 8px; padding-top: 0; }
+.fb-to { font-size: 14.5px; font-weight: 600; color: var(--ink-2); }
+.fb-row input, .fb-row textarea, .fb-body textarea {
+  flex: 1; min-width: 0; width: 100%; padding: 0; border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: 14.5px; line-height: 1.5; color: var(--ink); resize: none;
+}
+.fb-row textarea { height: auto; min-height: 0; }
+.fb-body textarea { height: auto; min-height: 210px; resize: vertical; }
+.modal .fb-mail textarea, .modal .fb-mail input { border-radius: 0; box-shadow: none; }
+.modal .fb-mail textarea:focus, .modal .fb-mail input:focus { outline: none; }
+.fb-row.invalid .fb-label, .fb-body.invalid .fb-label { color: var(--bad); }
+.fb-row.invalid, .fb-body.invalid { box-shadow: inset 3px 0 0 var(--bad); }
+.fb-honey { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+.fb-note { margin: 12px 2px 0; font-size: 12.5px; color: var(--ink-3); line-height: 1.5; }
+#fbForm .ac-error { margin-top: 10px; }
+#fbForm .ac-error a { color: inherit; }
+#fbForm .m-actions { margin-top: 18px; }
+.btn.primary:disabled { opacity: .45; cursor: not-allowed; }
+.fb-sent { text-align: center; padding: 10px 0 0; }
+.fb-sent-ico { display: inline-grid; place-items: center; width: 52px; height: 52px; border-radius: 50%; background: #E9F6EE; color: var(--ok); margin-bottom: 12px; }
+.fb-sent-ico svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.fb-sent h2 { margin: 0 0 8px; }
+.fb-sent .m-actions { justify-content: center; }
+@media (max-width: 720px) { .fb-label { width: 72px; } .fb-row { gap: 10px; padding: 10px 12px; } .fb-body { padding: 10px 12px 12px; } }
+
+/* Welcome screen: majors under their college, styled like the minor picker's college headings. */
+.wc-college { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); margin: 18px 0 8px; }

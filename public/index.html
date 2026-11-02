@@ -149,13 +149,6 @@
       <input type="file" id="minorFile" accept=".pdf,.txt,.csv,.tsv,.md,application/pdf,text/plain,text/csv" hidden>
     </footer>
 
-    <div class="modal-backdrop" id="modal" hidden>
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-        <button class="drawer-close" id="modalClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-        <div id="modalBody"></div>
-      </div>
-    </div>
-
     <aside class="drawer" id="drawer" aria-hidden="true">
       <button class="drawer-close" id="drawerClose" aria-label="Close">
         <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
@@ -172,6 +165,20 @@
     </div>
   </section>
 
+  <!-- Outside #app so they also work over the welcome screen. -->
+  <button class="fb-tab" id="feedbackBtn" title="Send feedback about FourSight">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15a2 2 0 0 1-2 2H8l-4 3.5V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2Z"/><path d="M8.5 9h7M8.5 12.5h4.5"/></svg>
+    <span>Feedback</span>
+  </button>
+
+  <div class="modal-backdrop" id="modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <button class="drawer-close" id="modalClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+
   <script src="data.js"></script>
   <script src="programs/ase.js"></script>
   <script src="programs/are.js"></script>
@@ -184,6 +191,18 @@
   <script src="programs/ge.js"></script>
   <script src="programs/me.js"></script>
   <script src="programs/pe.js"></script>
+  <script src="programs/acc.js"></script>
+  <script src="programs/mpa.js"></script>
+  <script src="programs/bhp.js"></script>
+  <script src="programs/bax.js"></script>
+  <script src="programs/csb.js"></script>
+  <script src="programs/ecb.js"></script>
+  <script src="programs/fin.js"></script>
+  <script src="programs/ib.js"></script>
+  <script src="programs/man.js"></script>
+  <script src="programs/mis.js"></script>
+  <script src="programs/mkt.js"></script>
+  <script src="programs/scm.js"></script>
   <script src="transcript.js"></script>
   <script src="curriculum.js"></script>
   <script src="pdfdoc.js"></script>

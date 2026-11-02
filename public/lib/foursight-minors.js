@@ -296,6 +296,7 @@ export function coursesStillNeeded(db, code, student, { avoidHonors = true, assu
 
 function filterMatches(db, filter, r) {
   if (!filter) return false;
+  if (filter.minorCard && !r.minorCard) return false;   // "chosen from an approved list": only what the student added for the minor
   const { base } = splitTopic(canonicalCode(db, recordCode(r)));
   const subj = base.replace(/\s\d{3}[A-Z]{0,2}$/, "");
   if (filter.subjects && !filter.subjects.includes(subj)) return false;

@@ -154,11 +154,11 @@
   // margins; they are not part of the plan.
   const inMargin = (it, pg) => it.y > pg.height - 46 || it.y < 30;
 
-  function rowsFromPages(pages) {
+  function rowsFromPages(pages, { oneColumn = false } = {}) {
     const out = [];
     for (const pg of pages) {
       const items = dropFootnoteMarks(pg.items.filter((it) => !inMargin(it, pg)));
-      for (const part of splitColumns(items, pg.width)) out.push(...buildRows(part));
+      for (const part of oneColumn ? [items] : splitColumns(items, pg.width)) out.push(...buildRows(part));
     }
     return out;
   }
@@ -210,10 +210,13 @@
     const pages = await window.Transcript.pdfPages(file, { shapes: true });
     const models = pages.map(chartModel);
     const text = pages.map((pg) => pg.items.map((it) => it.s).join(' ')).join(' ');
-    const tables = pages.filter((pg, i) => !models[i].boxed && findCodes(pg.items.map((it) => it.s).join(' ')).length >= 5);
+    // FourSight's own plan PDF: a page of mostly electives (a final year) has few course numbers but still belongs.
+    const ownPlan = /Upload this PDF to FourSight as a curriculum/.test(text);
+    const tables = pages.filter((pg, i) => !models[i].boxed && (ownPlan || findCodes(pg.items.map((it) => it.s).join(' ')).length >= 5));
     let rows;
     if (tables.length) {
-      rows = joinWrapped(rowsFromPages(tables));
+      // FourSight's own plan is a table, never newspaper columns: short course numbers can leave a gap that looks like a gutter.
+      rows = joinWrapped(rowsFromPages(tables, { oneColumn: ownPlan }));
       // A chart beside the table can name slots the table leaves out (its text may only carry course numbers).
       const extra = pages.flatMap((pg, i) => (models[i].boxed ? chartRows(models[i]) : []));
       if (extra.length) rows.supplement = extra;
@@ -363,6 +366,8 @@
   const NAME_ONLY_RE = /\b(electives?|core|curriculum|gen(?:eral)? ?ed(?:ucation)?|humanities|social|behavioral|history|government|politic\w*|arts?|literature|writing|composition|language|culture|cultural|diversity|ethics|communication|speech|science|lab|seminar|requirement|options?|selection|approved|free|capstone|design|internship|co-?op|wellness|physical education|kinesiology|signature|first-year|experience)\b/i;
   const HEADER_WORD_RE = /^(course|courses|course no\.?|course number|course #|number|no\.|title|course title|name|course name|description|hours|hrs|credits?|credit hours|semester credit hours|units|sch|cr|grade|prerequisites?|pre-?reqs?|co-?requisites?|co-?reqs?|semester|term|year|notes?|subject)$/i;
   const CHOICE_RE = /\b(?:select|choose|pick|take|complete)\b[^.]{0,30}?\b(?:one|1|two|2)\b|\bone of the following\b/i;
+  // A section of courses already earned before the first semester (FourSight's own plans print "Credit Claimed").
+  const CLAIM_RE = /^(credit claimed|claimed credit|prior credit|transfer credit|credits? by exam(?:ination)?|advanced standing|incoming credit)$/i;
   const TOTAL_RE = /\b(total|subtotal)\b|^(?:semester|term|quarter|year)?\s*(?:credit|semester|sch)?\s*hours\b/i;
 
   // The number at the end of a cell; a range ("3-4", "15-16") counts as its larger end.
@@ -493,6 +498,12 @@
         closeGroup();
         preCols.length = 0;
         for (const c of cells) if (/^(pre|co)-?req/i.test(c.text.trim())) preCols.push({ x: c.x, co: /^co/i.test(c.text.trim()) });
+        return;
+      }
+      if (cells.length === 1 && CLAIM_RE.test(rowText)) {
+        closeGroup();
+        closed = false;
+        columns = [{ x: -Infinity, term: 'credit' }];
         return;
       }
       if (heads.length >= 2) {
@@ -701,9 +712,13 @@
       if (!(c.pre || []).includes(ref) && !(c.co || []).includes(ref)) { (c[field] ||= []).push(ref); prereqs++; }
     }
 
-    const out = layout(list, terms, courses, byOrder);
+    // Courses already earned go in a Credit claimed column before the first semester.
+    const claimed = list.filter((it) => it.term === 'credit');
+    const out = layout(list.filter((it) => it.term !== 'credit'), terms, courses, byOrder);
     const supplemented = supplement(rows, { ut, courses, out, idOf });
-    const termIndex = new Map(out.order.map((orig, k) => [orig, k]));
+    const shift = claimed.length ? 1 : 0;
+    const termIndex = new Map(out.order.map((orig, k) => [orig, k + shift]));
+    if (claimed.length) { out.terms.unshift({ kind: 'credit', year: 0 }); out.plan.unshift(claimed.map((it) => it.id)); }
     const meta = names(head);
     return {
       courses, plan: out.plan, terms: out.terms, prior, school: meta.school, program: meta.program,

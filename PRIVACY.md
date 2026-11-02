@@ -1,12 +1,12 @@
 # FourSight Privacy Policy
 
-Effective October 26, 2026
+Effective November 2, 2026
 
 FourSight is a degree-planning tool that runs entirely in your web browser, as a Chrome extension. This policy explains what happens to the information you put into it.
 
 ## The short version
 
-FourSight does not collect, send, sell or share any of your data. Everything you enter stays on your own computer.
+FourSight does not collect, sell or share your data. Everything you enter stays on your own computer. The only thing FourSight ever sends is feedback you write and choose to send with the Feedback button.
 
 ## What FourSight stores, and where
 
@@ -19,6 +19,7 @@ FourSight saves your degree plan so it is still there the next time you open it.
 - the courses, credit hours and prerequisites read from a curriculum, prerequisite flowchart or minor file you added
 - a minor you added, and its requirements
 - your course-type colors
+- the email address you last sent feedback from, so you do not have to type it again
 
 This information is stored only in your browser's local storage on your own device. It is never sent to the developer or to anyone else, and there is no FourSight account or server.
 
@@ -30,11 +31,21 @@ If you import a transcript (as a PDF file or pasted text), FourSight reads it in
 
 Students at any school can build a plan from their degree plan or flowchart, add prerequisite chains from a prerequisite flowchart, and add a minor from its catalog page (PDF, text or CSV files, or pasted text). FourSight reads these files inside your browser to find course numbers, names, credit hours, semesters and prerequisites. The files are never uploaded anywhere; FourSight keeps only the courses it found, stored on your device as described above.
 
+## Feedback
+
+FourSight has a Feedback button for reporting problems. If you fill in the feedback form and press **Send**, FourSight sends:
+
+- the email address you typed, so the developer can reply to you
+- the header and body you wrote
+- the name of your plan (your major and school) and the FourSight version, to help find the problem
+
+These are sent through Web3Forms (web3forms.com), an email-forwarding service, to the developer's email inbox. Nothing is sent unless you press Send, and nothing else about your plan is included. The developer uses feedback only to reply to you and to improve FourSight, and does not sell or share it. Web3Forms' handling of messages is covered by its own privacy policy, on web3forms.com.
+
 ## What FourSight does not do
 
-- It does not collect personal information such as your name, email address, UT EID or location.
+- It does not collect personal information such as your name, UT EID or location. Your email address is sent only if you type it into the feedback form and press Send.
 - It does not use analytics, tracking, advertising or cookies.
-- It does not connect to the internet while you use it. All of its code, including the PDF reader, is included in the extension. The only exception is when you click a link in the Program notes window (such as a UT catalog page); that opens the website in a new tab, like any other link.
+- It does not connect to the internet while you use it. All of its code, including the PDF reader, is included in the extension. There are two exceptions: sending feedback (described above), and clicking a link in the Program notes window (such as a UT catalog page), which opens the website in a new tab like any other link.
 - It requests no special Chrome permissions and cannot read your other tabs or browsing.
 
 ## Deleting your data
@@ -55,4 +66,4 @@ If this policy changes, the updated version will be posted at this address with 
 
 ## Contact
 
-Questions about this policy can be posted as an issue on the FourSight repository: https://github.com/leightonmj04/FourSight/issues
+Questions about this policy can be sent with the Feedback button in FourSight, or posted as an issue on the FourSight repository: https://github.com/leightonmj04/FourSight/issues
