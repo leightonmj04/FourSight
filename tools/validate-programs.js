@@ -52,7 +52,10 @@ for (const { id, ids } of FS.order.flatMap((o) => (o.group ? o.ids.map((x) => ({
         for (const o of opts) if (!C[o] && !(p.prior && p.prior[o])) errs.push(`${cid} ${type} ${o} is neither a course nor a listed outside prerequisite`);
         const inPlan = opts.filter((o) => C[o]);
         if (!inPlan.length) continue;
-        const ok = inPlan.some((o) => (type === 'pre' ? sem[o] < sem[cid] : sem[o] <= sem[cid]));
+        // A lab can't come before its lecture, and courses that are co-requisites of each other can go in any order.
+        const order = type === 'co' && !Array.isArray(req) ? FS.coOrder(C, cid, req) : 'before';
+        if (order === 'free') continue;
+        const ok = inPlan.some((o) => (type === 'pre' ? sem[o] < sem[cid] : order === 'after' ? sem[o] >= sem[cid] : sem[o] <= sem[cid]));
         if (!ok) errs.push(`plan breaks ${cid} ${type} ${opts.join(' or ')} (terms ${inPlan.map((o) => sem[o]).join('/')} vs ${sem[cid]})`);
       }
     }

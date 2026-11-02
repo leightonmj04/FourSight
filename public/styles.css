@@ -23,6 +23,7 @@
   --alt: #8A4FD3; --alt-tint: #F0E8FC; --alt-ink: #6E3FA9;
   --tech: #0D8C80; --tech-tint: #DFF3F0; --tech-ink: #0A6A61;
   --minor: #C2418E; --minor-tint: #F9E9F3; --minor-ink: #9B3372;
+  --cert: #A67C00; --cert-tint: #F8F1DC; --cert-ink: #7A5B00;
 
   --bad: #E0353B;
   --warn: #C98A00;
@@ -84,13 +85,13 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
   display: flex; align-items: center; gap: 20px; padding: 14px 32px;
   background: var(--panel); border-bottom: 1px solid var(--line); position: relative; z-index: 4;
 }
-.topbar-mid { flex: 1; display: flex; align-items: center; justify-content: center; gap: 14px; }
+.topbar-mid { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 14px; }
 .topbar-right { display: flex; align-items: center; gap: 10px; }
 .program-picker { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; min-width: 0; }
 .program-picker select {
   font: inherit; font-size: 14.5px; font-weight: 650; text-transform: none; letter-spacing: 0; color: var(--ink);
   padding: 8px 34px 8px 12px; border-radius: 10px; border: 1px solid var(--line); background-color: #FAF9F7; appearance: none;
-  max-width: min(440px, 100%); text-overflow: ellipsis; cursor: pointer;
+  width: 100%; min-width: 0; max-width: 440px; text-overflow: ellipsis; cursor: pointer;
   background-image: linear-gradient(45deg, transparent 50%, var(--ink-3) 50%), linear-gradient(135deg, var(--ink-3) 50%, transparent 50%);
   background-position: calc(100% - 17px) 52%, calc(100% - 12px) 52%; background-size: 5px 5px; background-repeat: no-repeat;
 }
@@ -198,6 +199,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .card[data-cat="alt"] { --c: var(--alt); --t: var(--alt-tint); --i: var(--alt-ink); }
 .card[data-cat="tech"] { --c: var(--tech); --t: var(--tech-tint); --i: var(--tech-ink); }
 .card[data-cat="minor"] { --c: var(--minor); --t: var(--minor-tint); --i: var(--minor-ink); }
+.card[data-cat="cert"] { --c: var(--cert); --t: var(--cert-tint); --i: var(--cert-ink); }
 .card .row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .card .code { font-weight: 750; font-size: 14.5px; color: var(--i); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.005em; }
 .card .hrs { font-size: 11px; font-weight: 700; color: var(--ink-3); background: rgba(255, 255, 255, .7); border-radius: 6px; padding: 1px 6px; flex: none; }
@@ -769,7 +771,10 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .cc-custom input::-webkit-color-swatch { border: 0; border-radius: 5px; }
 
 /* ---------- Minors ---------- */
-.minor-btn { flex: none; }
+.minor-btn { flex: none; max-width: 240px; }
+.minor-btn span { overflow: hidden; text-overflow: ellipsis; }
+/* Certificates use the minor styles in their own color. */
+.addon-cert { --minor: var(--cert); --minor-tint: var(--cert-tint); --minor-ink: var(--cert-ink); }
 .minor-btn.on { background: var(--minor-tint); border-color: var(--minor); color: var(--minor-ink); }
 .minor-btn svg { width: 15px; height: 15px; }
 .minor-strip {
@@ -1084,3 +1089,25 @@ button.wc-major:hover { transform: translateY(-2px); border-color: rgba(191, 87,
 
 /* Welcome screen: majors under their college, styled like the minor picker's college headings. */
 .wc-college { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); margin: 18px 0 8px; }
+
+/* The top bar holds the plan menu and both add-on buttons: the menu gives way first, then its label, then a second row. */
+.program-picker { flex: 0 1 440px; min-width: 170px; }
+.program-picker > span { flex: none; }
+.topbar .brand-sub > span:last-child, .topbar .brand-sub > span:first-child { white-space: nowrap; }
+@media (max-width: 1420px) {
+  .program-picker > span { display: none; }
+  .minor-btn { max-width: 170px; }
+}
+@media (max-width: 1240px) {
+  .topbar { flex-wrap: wrap; row-gap: 10px; }
+  .topbar-right { margin-left: auto; }
+  .topbar-mid { order: 3; flex: 1 0 100%; justify-content: flex-start; }
+  .program-picker { flex: 1 1 200px; }
+  .minor-btn { max-width: 240px; }
+}
+
+/* A certificate course whose prerequisite isn't in the plan. */
+.mn-chip.inplan.minorcard.lacks { border-color: #D9A400; background: #FFF6DE; color: #7A5600; }
+.mn-req p.mn-warn { display: flex; align-items: flex-start; gap: 7px; margin: 10px 0 0; padding: 8px 11px; border-radius: 9px; background: #FFF6DE; color: #7A5600; }
+.mn-warn svg { flex: none; width: 14px; height: 14px; margin-top: 2px; }
+.ms-warn { color: #7A5600; font-weight: 650; }

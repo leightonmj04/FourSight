@@ -5,7 +5,8 @@
 //   code, title, hrs, cat     cat is one of the category keys below (major, stem, core, alt, tech)
 //   pre: [...]                must be completed in an EARLIER term. An inner array is a one-of
 //                             group: ['ECE312', 'ECE313'] means either course satisfies it.
-//   co:  [...]                may be taken earlier or in the SAME term (co-requisite); groups allowed
+//   co:  [...]                may be taken earlier or in the SAME term (co-requisite); groups allowed. It never
+//                             means the courses must be taken together. See coOrder for lectures, labs and pairs.
 //   latest                    last regular term index (0 = Fall 1 ... 7 = Spring 4) the course can be
 //                             taken and still graduate in four years. Programs without department
 //                             figures get it computed from the prerequisite chain.
@@ -117,6 +118,31 @@ window.FS = (() => {
     return out;
   }
 
+  // A lab goes with its lecture: same subject, and named a lab ("PHY 105N", "M E 130L") with no more hours than the lecture.
+  // Courses that list each other need no more proof, and a one-hour course among them counts too (CH 104M). A lecture
+  // that lists a lab without the lab listing it back must also share its number (NTR 326 and NTR 126L), because a course
+  // can require another course's lab (HDF 315L and HDF 113L).
+  function isLabOf(lab, lecture, listEachOther) {
+    const subject = (c) => (/^(.*?)\s*\d/.exec(c.code || '') || [])[1];
+    const digits = (c) => (/\d(\d\d)[A-Z]{0,2}$/.exec(c.code || '') || [])[1];
+    if (!subject(lab) || subject(lab) !== subject(lecture)) return false;
+    const lh = lab.hrs || 0, xh = lecture.hrs || 0;
+    const titled = /\b(lab|laboratory)\b/i.test(lab.title || '') && !/\b(lab|laboratory)\b/i.test(lecture.title || '');
+    const named = titled ? lh <= xh : lh < xh && (/\d{3}L$/.test(lab.code) || (listEachOther && lh === 1));
+    return named && (listEachOther || digits(lab) === digits(lecture));
+  }
+  // What course `id` listing `p` as a co-requisite means for their order. A co-requisite can be taken in the same term; it
+  // doesn't have to be.
+  //   'before'  p in the same term or earlier: the usual meaning, and how a lab treats its lecture
+  //   'after'   p in the same term or later: a lecture listing its own lab, which can't come before the lecture
+  //   'free'    any order: two courses that list each other, neither a lab of the other
+  function coOrder(courses, id, p) {
+    const a = courses[id], b = courses[p];
+    if (!a || !b) return 'before';
+    if ((b.co || []).includes(id)) return isLabOf(a, b, true) ? 'before' : isLabOf(b, a, true) ? 'after' : 'free';
+    return isLabOf(b, a, false) ? 'after' : 'before';
+  }
+
   function define(p) {
     programs[p.id] = p;
     if (p.group) {
@@ -127,9 +153,9 @@ window.FS = (() => {
     }
   }
 
-  return { SHARED, CORE, programs, order, pick, slots, define, clone };
+  return { SHARED, CORE, programs, order, pick, slots, define, clone, coOrder };
 })();
 
 // Course type keys and their colors (see --major ... --tech in styles.css). Each program names
 // the types it uses.
-window.CATEGORY_KEYS = ['major', 'stem', 'core', 'alt', 'tech', 'minor'];
+window.CATEGORY_KEYS = ['major', 'stem', 'core', 'alt', 'tech', 'minor', 'cert'];

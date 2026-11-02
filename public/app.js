@@ -31,6 +31,7 @@
     edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg>',
     trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
     palette: '<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18c1.2 0 1.8-.9 1.8-1.8 0-1.3-1-1.6-1-2.7 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3Z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10" cy="7" r="1.2"/><circle cx="15" cy="7.5" r="1.2"/></svg>',
+    cert: '<svg viewBox="0 0 24 24"><circle cx="12" cy="9" r="6"/><path d="m8.5 14-1.5 7 5-3 5 3-1.5-7"/></svg>',
     minor: '<svg viewBox="0 0 24 24"><path d="M4 19.5V6a2 2 0 0 1 2-2h12v13H6a2 2 0 0 0-2 2.5Z"/><path d="M4 19.5A2 2 0 0 0 6 21.5h12V17"/><path d="M9 8h5"/></svg>',
     pin: '<svg viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3.5 3.5h-11L10 10 9 4Z"/><path d="M12 13.5V20"/></svg>',
     sun: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></svg>',
@@ -52,6 +53,7 @@
     selected: null,
     pinned: null,          // course whose chain stays lit while scrolling or hovering elsewhere
     minor: null,           // the minor this plan includes: { id, name, shortName, totalHours } (see minors section)
+    cert: null,            // the UT certificate this plan includes, the same shape as minor
     custom: {},            // courses added with the + button: id -> { code, title, hrs, cat, pre, co, unlocks, custom }
     edits: {},             // changes to catalog courses: id -> the fields that differ
     removed: [],           // catalog courses the student deleted
@@ -74,9 +76,9 @@
     ALL_EDGES = [];
     const seen = new Set();
     // `any` lists the options of a one-of requirement ("ECE 312 or 313"); each option gets a line.
-    const add = (from, to, type, any) => {
+    const add = (from, to, type, any, free) => {
       const id = `${from}${type === 'pre' ? '>' : '~'}${to}`;
-      if (C[from] && C[to] && from !== to && !seen.has(id)) { seen.add(id); ALL_EDGES.push(any ? { id, from, to, type, any } : { id, from, to, type }); }
+      if (C[from] && C[to] && from !== to && !seen.has(id)) { seen.add(id); ALL_EDGES.push(any ? { id, from, to, type, any } : free ? { id, from, to, type, free } : { id, from, to, type }); }
     };
     const each = (list, fn) => {
       for (const p of list || []) {
@@ -88,12 +90,18 @@
     for (const [id, c] of Object.entries(C)) {
       // A course with its own "unlocks" list (added or edited) decides which courses it leads to.
       each(c.pre, (p, any) => { if (!C[p] || !C[p].unlocks || C[p].unlocks.includes(id)) add(p, id, 'pre', any); });
-      each(c.co, (p, any) => add(p, id, 'co', any));
+      // A co-requisite line runs from the course that may come first (see coOrder); a line marked free can't break.
+      each(c.co, (p, any) => {
+        const order = any ? 'before' : window.FS.coOrder(C, id, p);
+        if (order === 'free') { const [x, y] = [p, id].sort(); add(x, y, 'co', null, true); }
+        else if (order === 'after') add(id, p, 'co');
+        else add(p, id, 'co', any);
+      });
       for (const t of c.unlocks || []) add(id, t, 'pre');
     }
     // One-of lines are always drawn: no single option is required, so they neither hide other
     // lines nor get hidden by them.
-    const plain = ALL_EDGES.filter((e) => !e.any);
+    const plain = ALL_EDGES.filter((e) => !e.any && !e.free);
     const kept = plain.slice();
     updateLegendCounts();
     const order = plain.slice().sort((a, b) => (a.type === b.type ? 0 : a.type === 'pre' ? -1 : 1));
@@ -101,7 +109,7 @@
       const others = kept.filter((f) => f !== e);
       if (impliedByChain(e, others)) kept.splice(kept.indexOf(e), 1);
     }
-    EDGES = ALL_EDGES.filter((e) => e.any || kept.includes(e));
+    EDGES = ALL_EDGES.filter((e) => e.any || e.free || kept.includes(e));
   }
   rebuildEdges();
 
@@ -203,6 +211,7 @@
       if (!raw && P.id === 'che') raw = localStorage.getItem('dp.plan.me');
       const saved = JSON.parse(raw || 'null');
       S.minor = (saved && saved.minor) || null;
+      S.cert = (saved && saved.cert) || null;
       CATS = programCats();
       applyCourses(saved ? { custom: saved.custom || {}, edits: saved.edits || {}, removed: saved.removed || [] } : {});
       if (validState(saved)) {
@@ -277,7 +286,7 @@
       localStorage.setItem(planKey(), JSON.stringify({
         terms: S.terms, plan: S.plan, done: [...S.done], credit: [...S.credit], taken: S.taken, prior: S.prior,
         fromTranscript: [...S.fromTranscript], transcript: S.transcript, custom: S.custom, edits: S.edits, removed: S.removed,
-        claimed: [...S.claimed], minor: S.minor, suggested: planHash(P.plan),
+        claimed: [...S.claimed], minor: S.minor, cert: S.cert, suggested: planHash(P.plan),
       }));
     } catch (_) { /* ignore */ }
   }
@@ -288,9 +297,11 @@
   function semOf(plan, id) { return plan.findIndex((s) => s.includes(id)); }
 
   // ---------------------------------------------------------------- rules
-  // pre: the prerequisite must be in an earlier semester. co: same semester or earlier.
-  // A one-of line only breaks when none of its options comes in time.
+  // pre: the prerequisite must be in an earlier semester. co: same semester or earlier (a lab's lecture included).
+  // A one-of line only breaks when none of its options comes in time. Courses that are co-requisites of each other can
+  // go in any order, so their line never breaks.
   function edgeBroken(plan, e) {
+    if (e.free) return false;
     const b = semOf(plan, e.to);
     const ok = (from) => { const a = semOf(plan, from); return e.type === 'pre' ? a < b : a <= b; };
     return e.any ? !e.any.some(ok) : !ok(e.from);
@@ -327,7 +338,12 @@
     const next = {};
     for (const [id, c] of Object.entries(courses)) {
       for (const p of c.pre || []) if (typeof p === 'string' && courses[p]) (next[p] ||= []).push([id, 1]);
-      for (const p of c.co || []) if (typeof p === 'string' && courses[p]) (next[p] ||= []).push([id, 0]);
+      for (const p of c.co || []) {
+        if (typeof p !== 'string' || !courses[p]) continue;
+        const order = window.FS.coOrder(courses, id, p);
+        if (order === 'before') (next[p] ||= []).push([id, 0]);
+        else if (order === 'after') (next[id] ||= []).push([p, 0]);
+      }
     }
     const memo = {}, visiting = new Set();
     const depth = (id) => {
@@ -761,6 +777,11 @@
         const sx = a.x + a.w, ex = b.x + b.w + 2;
         const bulge = 26 + Math.min(30, Math.abs(by - ay) * 0.12);
         d = `M${sx},${ay} C${sx + bulge},${ay} ${ex + bulge},${by} ${ex},${by}`;
+      } else if (e.free) {
+        // Co-requisites of each other can come in either order: the line still reads left to right.
+        const sx = b.x + b.w, ex = a.x - 2;
+        const k = Math.max(36, (ex - sx) * 0.45);
+        d = `M${sx},${by} C${sx + k},${by} ${ex - k},${ay} ${ex},${ay}`;
       } else {
         // Prerequisite placed after the course: run backwards, right edge of the course.
         const sx = a.x, ex = b.x + b.w + 2;
@@ -1125,7 +1146,8 @@
     // Requirements come from the edges (added and edited courses change them), plus credit from
     // outside the plan such as CH 301. Deleted catalog courses are dropped.
     const outside = (list) => (list || []).filter((p) => typeof p === 'string' && !C[p] && !BASE[p]);
-    const into = (type) => ALL_EDGES.filter((e) => e.to === id && e.type === type && !e.any).map((e) => e.from);
+    const into = (type) => ALL_EDGES.filter((e) => e.to === id && e.type === type && !e.any && !e.free).map((e) => e.from);
+    const freeCo = ALL_EDGES.filter((e) => e.free && e.to === id).map((e) => e.from);
     // One-of requirements, each shown once with all its options.
     const groups = [];
     for (const e of ALL_EDGES) {
@@ -1138,7 +1160,7 @@
     const preIds = [...into('pre'), ...outside(c.pre)];
     const coIds = [...into('co'), ...outside(c.co)];
     const pre = preIds.map((p) => reqItem(p, !C[p] || semOf(S.plan, p) < sem));
-    const co = coIds.map((p) => reqItem(p, !C[p] || semOf(S.plan, p) <= sem, 'co-req'));
+    const co = [...coIds.map((p) => reqItem(p, !C[p] || semOf(S.plan, p) <= sem, 'co-req')), ...freeCo.map((p) => reqItem(p, true, 'co-req'))];
     const unlocks = ALL_EDGES.filter((e) => e.from === id).map((e) => {
       const ok = !edgeBroken(S.plan, e);
       return `<li class="${ok ? 'ok' : 'bad'}">${ok ? ICON.check : ICON.x}<button data-go="${e.to}">${C[e.to].code}</button>` +
@@ -1194,6 +1216,7 @@
     if ($('dAddPre')) {
       $('dAddPre').addEventListener('click', () => loadMinors().then(() => {
         const code = C[id].catalogCode;
+        ADD = 'minor';
         addMinorCourses(prereqPlan(code).extra, code);
       }));
     }
@@ -1262,7 +1285,7 @@
     openModal(`<h2 id="modalTitle">${P.own ? `Reset to ${esc(P.def.source)}?` : 'Reset to the suggested plan?'}</h2>` +
       `<p class="m-sub">Every course goes back to ${P.own ? 'the semester the file put it in' : 'its suggested semester'} and extra terms are removed. ` +
       `Edited and deleted courses are restored${S.transcript ? ', and anything from an imported transcript is cleared' : ''}.` +
-      `${S.minor ? ` The ${esc(S.minor.name)}${minorCards ? ` and the ${minorCards} course${minorCards === 1 ? '' : 's'} added for it` : ''} ${minorCards ? 'are' : 'is'} removed.` : ''}</p>` +
+      `${addOnNames() ? ` The ${esc(addOnNames())}${minorCards ? ` and the ${minorCards} course${minorCards === 1 ? '' : 's'} added for ${S.minor && S.cert ? 'them' : 'it'}` : ''} ${minorCards || (S.minor && S.cert) ? 'are' : 'is'} removed.` : ''}</p>` +
       (marked || added ? `<div class="rs-keeps">` +
         (marked ? keep('rsKeepDone', `Keep my ${marked} completed course${marked === 1 ? '' : 's'} checked off`) : '') +
         (added ? keep('rsKeepAdded', `Keep the ${added} course${added === 1 ? '' : 's'} I added`) : '') + `</div>` : '') +
@@ -1279,22 +1302,24 @@
   function confirmClear() {
     const n = S.plan.flat().length;
     openModal(`<h2 id="modalTitle">Clear this plan?</h2>` +
-      `<p class="m-sub">${n ? `All ${n} course${n === 1 ? '' : 's'} and any extra terms are removed${S.minor ? `, along with the ${esc(S.minor.name)}` : ''}. This can\u2019t be undone.` : 'Your plan is already empty.'}</p>` +
+      `<p class="m-sub">${n ? `All ${n} course${n === 1 ? '' : 's'} and any extra terms are removed${addOnNames() ? `, along with the ${esc(addOnNames())}` : ''}. This can\u2019t be undone.` : 'Your plan is already empty.'}</p>` +
       `<div class="m-actions"><button class="btn ghost" id="rsCancel">Cancel</button>${n ? '<button class="btn danger" id="rsOk">Clear plan</button>' : ''}</div>`);
     $('rsCancel').addEventListener('click', closeModal);
     if (n) $('rsOk').addEventListener('click', () => { closeModal(); revertToSuggested({ keepDone: false, keepAdded: false }); });
   }
 
-  // Courses added for the minor (current or saved before the minor flag existed).
-  const isMinorCard = (id) => !!(S.custom[id] && (S.custom[id].minor || S.custom[id].cat === 'minor'));
+  // Courses added for the minor or certificate (current or saved before the minor flag existed).
+  const isMinorCard = (id) => !!(S.custom[id] && (S.custom[id].minor || S.custom[id].cat === 'minor' || S.custom[id].cat === 'cert'));
+  const addOnNames = () => [S.minor, S.cert].filter(Boolean).map((a) => a.name).join(' and the ');
 
   function revertToSuggested({ keepDone = true, keepAdded = true } = {}) {
     const before = snapshot();
     const oldPlan = S.plan, oldTerms = S.terms;
-    // The minor goes too: the suggested plan is the degree alone. Courses added by hand stay if asked.
-    const hadMinor = !!S.minor;
+    // The minor and certificate go too: the suggested plan is the degree alone. Courses added by hand stay if asked.
+    const hadMinor = !!(S.minor || S.cert);
     const custom = keepAdded ? Object.fromEntries(Object.entries(S.custom).filter(([id]) => !isMinorCard(id))) : {};
     S.minor = null;
+    S.cert = null;
     CATS = programCats();
     // Brings back deleted and edited catalog courses.
     applyCourses({ custom });
@@ -1412,7 +1437,7 @@
         yesNo('acHasPre', 'Does it have prerequisites?', sel.acPre.length) +
         `<div class="ac-pick" id="acPrePick" hidden><p>Select the classes you need to take first.</p>${picker('acPre')}</div>` +
         yesNo('acHasCo', 'Does it have co-requisites?', sel.acCo.length) +
-        `<div class="ac-pick" id="acCoPick" hidden><p>Select the classes to take in the same semester or earlier.</p>${picker('acCo')}</div>` +
+        `<div class="ac-pick" id="acCoPick" hidden><p>Select the classes that can be taken in the same semester or earlier.</p>${picker('acCo')}</div>` +
         yesNo('acHasPost', 'Is it a prerequisite for other classes?', sel.acPost.length) +
         `<div class="ac-pick" id="acPostPick" hidden><p>Select the classes that need this course.</p>${picker('acPost')}</div>` +
         `<p class="ac-error" id="acError" hidden></p>` +
@@ -1568,23 +1593,24 @@
     setTimeout(() => { if (tweens[elId] === to) el.textContent = fmt(to); }, dur + 50);
   }
 
-  // Hours a minor adds to the degree: its total, less hours from degree-plan courses that also count toward it
-  // (they are already in the degree's hours). Before the minor data loads, the full total is used.
-  function minorHours() {
-    if (!S.minor) return null;
-    const cards = Object.keys(C).filter((id) => C[id].cat === 'minor');
+  // Hours a minor or certificate adds to the degree: its total, less hours from other courses in the plan that also
+  // count toward it (they are already counted). Before the data loads, the full total is used.
+  function minorHours(kind = 'minor') {
+    const add = S[kind];
+    if (!add) return null;
+    const cards = Object.keys(C).filter((id) => C[id].cat === kind);
     const cardsDone = cards.filter((id) => S.done.has(id));
-    let total = S.minor.totalHours || 0, shared = 0, doneMinor = null;
-    if (S.minor.own) {
+    let total = add.totalHours || 0, shared = 0, doneMinor = null;
+    if (add.own) {
       const ev = evaluateOwnMinor();
       shared = Math.min(total, ev.shared);
       doneMinor = ev.done;
-    } else if (MN && MN.data.minors[S.minor.id]) {
-      const ev = evaluateMinor();
+    } else if (MN && MN.data.minors[add.id]) {
+      const ev = evaluateMinor(kind);
       total = ev.minor.totalHours;
       for (const a of ev.planned.requirements.flatMap((r) => r.applied || [])) {
         const id = planIdFor(a.code);
-        if (id && C[id].cat !== 'minor') shared += a.hours;
+        if (id && C[id].cat !== kind) shared += a.hours;
       }
       doneMinor = ev.done.hoursApplied;
     }
@@ -1594,14 +1620,14 @@
   }
 
   function renderAudit() {
-    // Degree courses are counted course by course; a minor adds its own hours (see minorHours).
-    const REQUIRED = Object.keys(C).filter((id) => !C[id].optional && C[id].cat !== 'minor');
-    const mh = minorHours();
-    const REQ_HOURS = REQUIRED.reduce((n, id) => n + C[id].hrs, 0) + (mh ? mh.extra : 0);
+    // Degree courses are counted course by course; a minor or certificate adds its own hours (see minorHours).
+    const REQUIRED = Object.keys(C).filter((id) => !C[id].optional && C[id].cat !== 'minor' && C[id].cat !== 'cert');
+    const mh = minorHours(), ch = minorHours('cert');
+    const REQ_HOURS = REQUIRED.reduce((n, id) => n + C[id].hrs, 0) + (mh ? mh.extra : 0) + (ch ? ch.extra : 0);
     const sumHrs = (ids) => ids.reduce((n, id) => n + C[id].hrs, 0);
     const doneReq = REQUIRED.filter((id) => S.done.has(id));
     const leftReq = REQUIRED.filter((id) => !S.done.has(id));
-    const doneHrs = sumHrs(doneReq) + (mh ? mh.doneExtra : 0), leftHrs = REQ_HOURS - doneHrs;
+    const doneHrs = sumHrs(doneReq) + (mh ? mh.doneExtra : 0) + (ch ? ch.doneExtra : 0), leftHrs = REQ_HOURS - doneHrs;
     const frac = REQ_HOURS ? doneHrs / REQ_HOURS : 0;
     const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
@@ -1615,7 +1641,8 @@
     const optDone = Object.keys(C).filter((id) => C[id].optional && S.done.has(id));
     $('auditDoneSub').textContent = `${plural(doneReq.length, 'course')} of ${REQUIRED.length}` +
       (optDone.length ? ` (+${sumHrs(optDone)} optional hr)` : '');
-    $('auditLeftSub').textContent = plural(leftReq.length, 'course') + (mh && mh.extra > mh.doneExtra ? ` + ${mh.extra - mh.doneExtra} minor hrs` : '');
+    $('auditLeftSub').textContent = plural(leftReq.length, 'course') + (mh && mh.extra > mh.doneExtra ? ` + ${mh.extra - mh.doneExtra} minor hrs` : '') +
+      (ch && ch.extra > ch.doneExtra ? ` + ${ch.extra - ch.doneExtra} certificate hrs` : '');
 
     // Next term: the first term that still has an unchecked required course.
     const nextIdx = S.plan.findIndex((sem) => sem.some((id) => !C[id].optional && !S.done.has(id)));
@@ -1633,15 +1660,19 @@
     }
 
     const orphan = REQUIRED.filter((id) => S.done.has(id) &&
-      [...(C[id].pre || []), ...(C[id].co || [])].some((p) => C[p] && !S.done.has(p)));
+      [...(C[id].pre || []), ...(C[id].co || []).filter((p) => window.FS.coOrder(C, id, p) === 'before')].some((p) => C[p] && !S.done.has(p)));
     $('auditWarn').hidden = !orphan.length;
     $('auditWarn').textContent = orphan.length
       ? `${orphan.map((id) => C[id].code).join(', ')} ${orphan.length === 1 ? 'is' : 'are'} checked off but ${orphan.length === 1 ? 'has' : 'have'} unchecked prerequisites.`
       : '';
 
     // Own plans list only the course types they use.
-    const shownCats = Object.entries(CATS).filter(([k]) => k !== 'minor' && (!P.own || REQUIRED.some((id) => C[id].cat === k)));
-    $('auditRows').innerHTML = (P.own && !shownCats.length && !mh ? `<div class="arow empty" role="row"><span></span><span class="name">No courses yet. Use + Add course in any semester${P.def.source ? '' : ', or upload your curriculum below'}.</span></div>` : '') +
+    const addOnRow = (k, h) => (h ? `<div class="arow${h.doneMinor >= h.total ? ' full' : ''}" data-cat="${k}" data-w="${h.total ? Math.min(100, (h.doneMinor / h.total) * 100) : 0}" role="row">` +
+        `<button class="sw" style="background:var(--${k})" title="Change color" aria-label="Change the ${ADDONS[k].word} color"></button><span class="name">${esc(CATS[k].label)}</span>` +
+        `<span class="abar"><i style="background:var(--${k}); width:${prevWidth[k] ?? 0}%"></i></span>` +
+        `<span><b>${h.doneMinor}</b> / ${h.total} hrs</span><span><b>${h.cardsDone}</b> of ${h.cards}</span></div>` : '');
+    const shownCats = Object.entries(CATS).filter(([k]) => k !== 'minor' && k !== 'cert' && (!P.own || REQUIRED.some((id) => C[id].cat === k)));
+    $('auditRows').innerHTML = (P.own && !shownCats.length && !mh && !ch ? `<div class="arow empty" role="row"><span></span><span class="name">No courses yet. Use + Add course in any semester${P.def.source ? '' : ', or upload your curriculum below'}.</span></div>` : '') +
       shownCats.map(([k, v]) => {
       const ids = REQUIRED.filter((id) => C[id].cat === k);
       const got = ids.filter((id) => S.done.has(id));
@@ -1650,10 +1681,7 @@
         `<button class="sw" style="background:var(--${k})" title="Change color" aria-label="Change the ${v.label} color"></button><span class="name">${v.label}</span>` +
         `<span class="abar"><i style="background:var(--${k}); width:${prevWidth[k] ?? 0}%"></i></span>` +
         `<span><b>${gotHrs}</b> / ${tot} hrs</span><span><b>${got.length}</b> of ${ids.length}</span></div>`;
-    }).join('') + (mh ? `<div class="arow${mh.doneMinor >= mh.total ? ' full' : ''}" data-cat="minor" data-w="${mh.total ? Math.min(100, (mh.doneMinor / mh.total) * 100) : 0}" role="row">` +
-        `<button class="sw" style="background:var(--minor)" title="Change color" aria-label="Change the minor color"></button><span class="name">${esc(CATS.minor.label)}</span>` +
-        `<span class="abar"><i style="background:var(--minor); width:${prevWidth.minor ?? 0}%"></i></span>` +
-        `<span><b>${mh.doneMinor}</b> / ${mh.total} hrs</span><span><b>${mh.cardsDone}</b> of ${mh.cards}</span></div>` : '');
+    }).join('') + addOnRow('minor', mh) + addOnRow('cert', ch);
     // Animate bars from their previous width to the new one.
     requestAnimationFrame(() => {
       $('auditRows').querySelectorAll('.arow:not(.empty)').forEach((row) => {
@@ -2005,7 +2033,7 @@
 
   function selectProgram(id, { remember = true } = {}) {
     P = isOwnId(id) ? (FSP[id] || loadOwn(id)) : (FSP[id] || FSP.che);
-    S.minor = null; // each program saves its own minor; loadPlan reads it
+    S.minor = null; S.cert = null; // each program saves its own; loadPlan reads them
     CATS = programCats();
     BASE = withOnTimeLimits(window.FS.clone(P.courses), defaultTerms().filter(isRegular).length);
     window.FS_PROGRAM = P; // transcript.js matches against the selected program
@@ -2016,6 +2044,7 @@
     // A plan from outside UT has no UT degree plans or minors to offer.
     $('programSelect').closest('.program-picker').hidden = P.own && !P.ut;
     $('minorBtn').hidden = false; // UT plans pick from UT's minors; other schools upload their minor's requirements
+    $('certBtn').hidden = P.own && !P.ut; // certificates are UT's only
     $('resetLabel').textContent = !P.own ? 'Reset to suggested' : P.def.source ? 'Reset to file' : 'Clear plan';
     $('brandDept').textContent = P.own && !P.ut ? P.dept : P.own ? 'The University of Texas at Austin' : P.dept;
     $('brandMeta').textContent = P.own ? (P.def.source && P.def.program && P.def.school ? `${P.def.program}, from ${P.def.source}` : P.degree) : `${P.degree}, 2026-28 catalog: ${P.hours} hours`;
@@ -2050,6 +2079,13 @@
   // minor. Its courses become cards of the "minor" course type with their catalog prerequisites; courses already in
   // the degree plan count toward the minor wherever the minor accepts them.
   let MN = null, mnLoading = null;
+  // A plan can include one minor and one UT certificate. They share the picker, the planner and their progress; ADD says
+  // which one is being worked on, and doubles as the course type of the cards added for it.
+  let ADD = 'minor';
+  const ADDONS = {
+    minor: { word: 'minor', Word: 'Minor', many: 'minors', index: 'index', color: 'pink', example: 'robotics or business' },
+    cert: { word: 'certificate', Word: 'Certificate', many: 'certificates', index: 'certIndex', color: 'gold', example: 'forensic science or Spanish' },
+  };
   const isBusiness = () => !!P && P.college === 'Business';
   const OUTSIDE = {};   // ids of catalog prerequisites that are not in the plan -> readable name
   // Prerequisites that differ by student group follow the student's college: the engineering branch for Cockrell
@@ -2071,6 +2107,7 @@
   function programCats() {
     const cats = Object.fromEntries(Object.entries(P.categories).map(([k, label]) => [k, { label }]));
     if (S.minor) cats.minor = { label: `Minor: ${S.minor.shortName}` };
+    if (S.cert) cats.cert = { label: `Certificate: ${S.cert.shortName}` };
     return cats;
   }
 
@@ -2098,7 +2135,7 @@
     for (const a of c.alias || []) if (!out.includes(a)) out.push(a);
     return out;
   }
-  function studentFromPlan() {
+  function studentFromPlan(kind = ADD) {
     const grades = {};
     for (const r of (S.transcript && S.transcript.report) || []) if (['applied', 'credit'].includes(r.status) && r.grade) grades[r.code] = r.grade;
     const courses = [];
@@ -2109,7 +2146,7 @@
       const code = codesOf(id)[0];
       if (!code) return;
       courses.push({ code, hours: C[id].hrs, status: done ? 'completed' : 'planned', grade: done ? grades[code] || null : null,
-        basis: S.credit.has(id) ? 'credit-by-exam' : 'letter', minorCard: C[id].cat === 'minor' });
+        basis: S.credit.has(id) ? 'credit-by-exam' : 'letter', minorCard: C[id].cat === kind });
     }));
     for (const pc of S.prior) if (pc.grade) courses.push({ code: pc.code, status: 'completed', grade: pc.grade, basis: pc.grade === 'CR' ? 'credit-by-exam' : 'letter' });
     const standing = hoursCompleted >= 90 ? 'senior' : hoursCompleted >= 60 ? 'junior' : hoursCompleted >= 30 ? 'sophomore' : 'freshman';
@@ -2165,7 +2202,8 @@
   function translatePrereq(tree) {
     const { FM, db } = MN;
     const pre = [], co = [], notes = [], names = {};
-    const inScope = (code) => !!planIdFor(code) || inMinor(code);
+    // A certificate course keeps every prerequisite the catalog lists, so one missing from the plan can be flagged.
+    const inScope = (code) => !!planIdFor(code) || (ADD === 'cert' ? !!courseRec(code) : inMinor(code));
     const passed = FM.makeContext(db, { courses: planAsPassed(), standing: 'senior', hoursCompleted: 999 }, { assume: ASSUME });
     // Every course the tree names gets a readable name, so a prerequisite that is (or later becomes) missing from
     // the plan can still be shown and flagged after a reload.
@@ -2187,8 +2225,11 @@
         return;
       }
       if (t.type === 'or') {
-        const simple = t.items.filter((i) => i.type === 'course');
-        if (simple.length === t.items.length && simple.every((i) => !!i.concurrent === !!simple[0].concurrent)) {
+        // "M 325K, 333L, or PHL 313K" can arrive as an or inside an or: they are all one set of alternatives.
+        const flat = (x) => (x.type === 'or' ? x.items.flatMap(flat) : [x]);
+        const items = t.items.flatMap(flat);
+        const simple = items.filter((i) => i.type === 'course');
+        if (simple.length === items.length && simple.every((i) => !!i.concurrent === !!simple[0].concurrent)) {
           const ids = [...new Set(simple.filter((i) => inScope(i.code)).map((i) => ref(i.code)))];
           if (ids.length) (simple[0].concurrent ? co : pre).push(ids.length === 1 ? ids[0] : ids);
           return;
@@ -2196,8 +2237,22 @@
         // Mixed alternatives: follow one the plan already meets, else the smallest one that names a course in the
         // plan or the minor (so "M E 340 or the equivalent" uses the plan's M E 340).
         const scoped = (i) => (i.type === 'course' ? (inScope(i.code) ? 1 : 0) : (i.items || []).reduce((n, x) => n + scoped(x), 0));
-        const met = t.items.find((i) => FM.evaluatePrereq(i, passed).status === 'met');
-        const pick = met || t.items.filter((i) => scoped(i) > 0).sort((a, b) => count(a) - count(b))[0] || null;
+        const met = items.find((i) => FM.evaluatePrereq(i, passed).status === 'met');
+        // A certificate course shows every way in, not one picked for the student: a path already started in the plan,
+        // or else all of them as alternatives ("SPN 311 and SPN 314 or SPN 611D").
+        if (!met && ADD === 'cert') {
+          const paths = items.filter((i) => scoped(i) > 0);
+          const started = paths.find((i) => i.type === 'and' && JSON.stringify(i).match(/"code":"[^"]+"/g).some((m) => planIdFor(m.slice(8, -1))));
+          if (started) { walk(started); return; }
+          if (paths.length > 1) {
+            const label = (x) => (x.type === 'course' ? `${displayCode(x.code)}${courseTitle(x.code) ? ` (${courseTitle(x.code)})` : ''}`
+              : (x.items || []).filter((y) => y.type !== 'req').map(label).join(x.type === 'and' ? ' and ' : ' or '));
+            const first = (x) => (x.type === 'course' ? x.code : first(x.items.find((y) => y.type !== 'req')));
+            pre.push(paths.map((p) => { const id = ref(first(p)); names[id] = label(p); return id; }));
+            return;
+          }
+        }
+        const pick = met || items.filter((i) => scoped(i) > 0).sort((a, b) => count(a) - count(b))[0] || null;
         if (pick) walk(pick);
       }
     };
@@ -2209,8 +2264,9 @@
   let minorSetCache = { id: null, set: null };
   function inMinor(code) {
     const { FM, db, data } = MN;
-    if (!S.minor || !data.minors[S.minor.id]) return false;
-    if (minorSetCache.id !== S.minor.id) {
+    const add = S[ADD];
+    if (!add || !data.minors[add.id]) return false;
+    if (minorSetCache.id !== add.id) {
       const set = new Set();
       const walk = (n) => {
         const add = (c) => FM.equivalentCodes(db, c).forEach((x) => set.add(FM.canonicalCode(db, x)));
@@ -2220,8 +2276,8 @@
         (n.sequences || []).forEach((q) => q.requirements.forEach(walk));
         if (n.then) walk(n.then);
       };
-      data.minors[S.minor.id].requirements.forEach(walk);
-      minorSetCache = { id: S.minor.id, set };
+      data.minors[add.id].requirements.forEach(walk);
+      minorSetCache = { id: add.id, set };
     }
     return [...FM.equivalentCodes(db, code)].some((x) => minorSetCache.set.has(FM.canonicalCode(db, x)));
   }
@@ -2281,7 +2337,7 @@
       }
     };
     after(req.pre, 1);
-    after(req.co, 0);
+    after((req.co || []).filter((p) => !req.card || Array.isArray(p) || window.FS.coOrder({ ...C, [req.id]: req.card }, req.id, p) === 'before'), 0);
     // Upper-division courses wait for sophomore standing (30 hours) even when the catalog asks only for consent.
     const need = req.notes.reduce((n, text) => Math.max(n, hoursForCondition(text)), req.upper ? 30 : 0);
     if (need) {
@@ -2316,9 +2372,9 @@
     const extra = notes.filter((n) => !prereqText.toLowerCase().includes(n.toLowerCase()));
     const upper = !!(r && r.rec.level === 'Upper Division');
     return {
-      code: displayCode(code), catalogCode: code, title: courseTitle(code) || 'Minor course', hrs: courseHours(code), cat: 'minor', pre, co,
-      refNames: names, keepRefs, reqNotes: notes, upper, minor: S.minor.id,
-      note: `${forCode ? `Prerequisite for ${displayCode(forCode)}, in` : 'For'} the ${S.minor.name}. ` +
+      code: displayCode(code), catalogCode: code, title: courseTitle(code) || `${ADDONS[ADD].Word} course`, hrs: courseHours(code), cat: ADD, pre, co,
+      refNames: names, keepRefs, reqNotes: notes, upper, minor: S[ADD].id,
+      note: `${forCode ? `Prerequisite for ${displayCode(forCode)}, in` : 'For'} the ${S[ADD].name}. ` +
         `Catalog prerequisite: ${prereqText || 'none'}${restrictions ? ` Restrictions: ${restrictions}` : ''}` +
         `${extra.length ? ` Planning notes: ${extra.join('; ')}.` : ''}`,
     };
@@ -2335,7 +2391,7 @@
       const id = minorCardId(code);
       if (custom[id] || planIdFor(code)) continue;
       const card = makeMinorCard(code, code === target ? null : target);
-      const sem = chooseTerm(earliestTerm({ pre: card.pre, co: card.co, notes: card.reqNotes, upper: card.upper }, placed, placedLoad), card.hrs, placedLoad);
+      const sem = chooseTerm(earliestTerm({ id, card, pre: card.pre, co: card.co, notes: card.reqNotes, upper: card.upper }, placed, placedLoad), card.hrs, placedLoad);
       placed.set(id, sem);
       placedLoad[sem] = (placedLoad[sem] || 0) + card.hrs;
       custom[id] = card;
@@ -2345,7 +2401,7 @@
     const tid = minorCardId(target);
     if (custom[tid] && !placed.has(tid) && semOf(S.plan, tid) >= 0) {
       const c = custom[tid], cur = semOf(S.plan, tid);
-      const min = earliestTerm({ pre: c.pre || [], co: c.co || [], notes: c.reqNotes || [], upper: c.upper }, placed, placedLoad);
+      const min = earliestTerm({ id: tid, card: c, pre: c.pre || [], co: c.co || [], notes: c.reqNotes || [], upper: c.upper }, placed, placedLoad);
       if (cur < min) {
         const sem = chooseTerm(min, c.hrs, placedLoad);
         S.plan[cur].splice(S.plan[cur].indexOf(tid), 1);
@@ -2362,14 +2418,15 @@
     const where = (a) => `<b>${esc(displayCode(a.code))}</b> (${esc(nameAt(a.sem))})`;
     const t = esc(displayCode(target));
     toast((main ? `Added <b>${t}</b> ${esc(courseTitle(target))} to ${esc(nameAt(main.sem))}` : `Added prerequisites for <b>${t}</b>`) +
-      (pre.length ? `${main ? ', plus ' : ': '}${pre.map(where).join(', ')}${main ? `, which ${t} requires and which ${pre.length === 1 ? 'is' : 'are'} part of the minor` : ''}` : '') +
+      (pre.length ? `${main ? ', plus ' : ': '}${pre.map(where).join(', ')}${main ? `, which ${t} requires and which ${pre.length === 1 ? 'is' : 'are'} part of the ${ADDONS[ADD].word}` : ''}` : '') +
       `.${moved != null ? ` ${t} moved to ${esc(nameAt(moved))} to come after ${pre.length === 1 ? 'it' : 'them'}.` : ''}` +
       [...new Set(added.map((a) => a.sem).concat(moved != null ? [moved] : []))].filter((i) => hours(S.plan[i]) > 18)
-        .map((i) => ` ${esc(nameAt(i))} now has ${hours(S.plan[i])} hours; you may want to move a course.`).join(''));
+        .map((i) => ` ${esc(nameAt(i))} now has ${hours(S.plan[i])} hours; you may want to move a course.`).join('') +
+      (ADD === 'cert' && main && analyze(S.plan).missing.has(main.id) ? ` It needs ${esc(analyze(S.plan).missing.get(main.id).join('; '))}, which ${analyze(S.plan).missing.get(main.id).length === 1 ? 'isn\'t' : 'aren\'t'} in your plan.` : ''));
   }
 
   // What happens when a course is picked in the minor planner: it is added along with any prerequisites that are
-  // part of the minor; prerequisites outside the minor are not added.
+  // part of the minor; prerequisites outside the minor are not added. In the certificate planner, only that course is added.
   // Take a course added for the minor back out of the plan. Other minor courses keep their link to it, so one that
   // needs it shows it as missing, and the arrow returns if it is added again. Undo puts it back where it was.
   function removeMinorCard(id) {
@@ -2401,7 +2458,9 @@
   function requestMinorCourse(code) {
     const existing = planIdFor(code);
     if (existing) { toast(`${esc(C[existing].code)} is already in your plan (${esc(nameAt(semOf(S.plan, existing)))}).`); showMinorPlanner(); return; }
-    addMinorCourses([...minorPrereqs(code), code], code);
+    // A certificate course goes in alone, and any prerequisite missing from the plan is flagged. A minor course brings
+    // the prerequisites that are part of the minor.
+    addMinorCourses(ADD === 'cert' ? [code] : [...minorPrereqs(code), code], code);
     showMinorPlanner();
   }
 
@@ -2434,14 +2493,16 @@
 
   // ---- choosing a minor
   function showMinorPicker() {
-    if (P.own && !P.ut) { showOwnMinorPicker(); return; } // other schools: the minor comes from a file
-    openModal('<h2 id="modalTitle">Add a minor</h2><p class="m-sub">Loading minors…</p>');
+    if (ADD === 'minor' && P.own && !P.ut) { showOwnMinorPicker(); return; } // other schools: the minor comes from a file
+    const A = ADDONS[ADD];
+    openModal(`<h2 id="modalTitle">Add a ${A.word}</h2><p class="m-sub">Loading ${A.many}…</p>`);
     loadMinors().then(() => {
-      const items = MN.data.index.map((e) => ({ e, el: eligibilityFor(e) }));
-      openModal(`<h2 id="modalTitle">Add a minor</h2>` +
-        `<p class="m-sub">${MN.data.index.length} UT Austin minors from the ${esc(MN.data.about.catalogYear || '2026-27')} catalog. Pick one to see its requirements and add its courses to your ${esc(programName())} plan.</p>` +
-        `<input class="mp-search" id="mpSearch" type="search" placeholder="Search minors, like robotics or business" aria-label="Search minors">` +
-        `<label class="mp-filter"><input type="checkbox" id="mpOpen" checked> Only show minors open to ${P.own ? 'your major' : `${esc(P.name)} majors`}</label>` +
+      const list = MN.data[A.index];
+      const items = list.map((e) => ({ e, el: eligibilityFor(e) }));
+      openModal(`<h2 id="modalTitle">Add a ${A.word}</h2>` +
+        `<p class="m-sub">${list.length} UT Austin ${A.many} from the ${esc(MN.data.about.catalogYear || '2026-27')} catalog. Pick one to see its requirements and add its courses to your ${esc(programName())} plan.</p>` +
+        `<input class="mp-search" id="mpSearch" type="search" placeholder="Search ${A.many}, like ${A.example}" aria-label="Search ${A.many}">` +
+        `<label class="mp-filter"><input type="checkbox" id="mpOpen" checked> Only show ${A.many} open to ${P.own ? 'your major' : `${esc(P.name)} majors`}</label>` +
         `<div id="mpList"></div>`);
       const draw = () => {
         const q = $('mpSearch').value.trim().toLowerCase(), onlyOpen = $('mpOpen').checked;
@@ -2449,21 +2510,22 @@
         const colleges = [...new Set(shown.map(({ e }) => e.college))];
         $('mpList').innerHTML = colleges.map((col) => `<section class="mp-group"><h3>${esc(col)}</h3>` +
           shown.filter(({ e }) => e.college === col).map(({ e, el }) => `<button class="mp-item" data-minor="${esc(e.id)}">` +
-            `<span class="mp-name">${esc(e.name)}<small>${e.totalHours} hours · ${esc(e.openTo || '')}</small></span>` +
+            `<span class="mp-name">${esc(e.name)}<small>${e.totalHours} hours${e.openTo ? ` · ${esc(e.openTo)}` : ''}</small></span>` +
             `<span class="mp-tags">${eligTag(el)}${e.applicationRequired ? '<span class="tagp">Application required</span>' : ''}</span></button>`).join('') +
-          `</section>`).join('') || `<p class="mp-empty">No minors match. ${onlyOpen ? 'Try unchecking “Only show minors open to your major”.' : ''}</p>`;
+          `</section>`).join('') || `<p class="mp-empty">No ${A.many} match. ${onlyOpen ? `Try unchecking “Only show ${A.many} open to your major”.` : ''}</p>`;
         $('mpList').querySelectorAll('[data-minor]').forEach((b) => b.addEventListener('click', () => chooseMinor(b.dataset.minor)));
       };
       $('mpSearch').addEventListener('input', draw);
       $('mpOpen').addEventListener('change', draw);
       draw();
       $('mpSearch').focus();
-    }).catch((err) => openModal(`<h2 id="modalTitle">Minors unavailable</h2><p class="m-sub">${esc(err.message)}</p>`));
+    }).catch((err) => openModal(`<h2 id="modalTitle">${A.Word}s unavailable</h2><p class="m-sub">${esc(err.message)}</p>`));
   }
   function chooseMinor(id) {
     const m = MN.data.minors[id];
     if (!m) return;
-    S.minor = { id, name: m.name, shortName: m.shortName || m.name, totalHours: m.totalHours };
+    ADD = m.kind === 'certificate' ? 'cert' : 'minor';
+    S[ADD] = { id, name: m.name, shortName: m.shortName || m.name, totalHours: m.totalHours };
     CATS = programCats();
     save();
     buildLegend();
@@ -2474,7 +2536,7 @@
     const before = snapshot();
     const custom = { ...S.custom };
     for (const [id, c] of Object.entries(custom)) {
-      if (c.cat !== 'minor') continue;
+      if (c.cat !== ADD) continue;
       if (dropCourses) {
         delete custom[id];
         for (const sem of S.plan) { const i = sem.indexOf(id); if (i >= 0) sem.splice(i, 1); }
@@ -2485,7 +2547,7 @@
         delete custom[id].minor;
       }
     }
-    S.minor = null;
+    S[ADD] = null;
     CATS = programCats();
     closeDrawer();
     applyCourses({ custom, edits: S.edits, removed: S.removed });
@@ -2493,22 +2555,22 @@
     buildLegend();
   }
   function confirmRemoveMinor() {
-    const n = Object.values(S.custom).filter((c) => c.cat === 'minor').length;
-    openModal(`<h2 id="modalTitle">Remove the ${esc(S.minor.name)}?</h2>` +
+    const n = Object.values(S.custom).filter((c) => c.cat === ADD).length, A = ADDONS[ADD];
+    openModal(`<h2 id="modalTitle">Remove the ${esc(S[ADD].name)}?</h2>` +
       `<p class="m-sub">Courses from your degree plan stay where they are.</p>` +
-      (n ? `<label class="rs-keep"><input type="checkbox" id="rmDrop" checked><span>Also remove the ${n} course${n === 1 ? '' : 's'} added for this minor</span></label>` : '') +
-      `<div class="m-actions"><button class="btn ghost" id="rmCancel">Cancel</button><button class="btn danger" id="rmOk">Remove minor</button></div>`);
+      (n ? `<label class="rs-keep"><input type="checkbox" id="rmDrop" checked><span>Also remove the ${n} course${n === 1 ? '' : 's'} added for this ${A.word}</span></label>` : '') +
+      `<div class="m-actions"><button class="btn ghost" id="rmCancel">Cancel</button><button class="btn danger" id="rmOk">Remove ${A.word}</button></div>`);
     $('rmCancel').addEventListener('click', showMinorPlanner);
     $('rmOk').addEventListener('click', () => { const drop = !$('rmDrop') || $('rmDrop').checked; closeModal(); removeMinor(drop); });
   }
 
   // ---- progress
-  let minorCache = { key: '', value: null };
-  function evaluateMinor() {
-    const minor = MN.data.minors[S.minor.id];
-    const key = JSON.stringify([S.minor.id, S.plan, [...S.done], S.taken, S.prior.length, Object.keys(S.custom)]);
-    if (minorCache.key === key) return minorCache.value;
-    const st = studentFromPlan();
+  const minorCache = { minor: { key: '', value: null }, cert: { key: '', value: null } };
+  function evaluateMinor(kind = ADD) {
+    const minor = MN.data.minors[S[kind].id];
+    const key = JSON.stringify([S[kind].id, S.plan, [...S.done], S.taken, S.prior.length, Object.keys(S.custom)]);
+    if (minorCache[kind].key === key) return minorCache[kind].value;
+    const st = studentFromPlan(kind);
     const done = MN.FM.evaluateMinor(minor, MN.db, st);
     const planned = MN.FM.evaluateMinor(minor, MN.db, st, { includePlanned: true });
     // University rule: at least 9 minor hours may not also count toward the major. Minor cards are the courses
@@ -2516,19 +2578,22 @@
     let outside = 0;
     for (const a of planned.requirements.flatMap((r) => r.applied || [])) {
       const id = planIdFor(a.code);
-      if (id && C[id].cat === 'minor') outside += a.hours;
+      if (id && C[id].cat === kind) outside += a.hours;
     }
-    minorCache = { key, value: { minor, done, planned, outside } };
-    return minorCache.value;
+    minorCache[kind] = { key, value: { minor, done, planned, outside } };
+    return minorCache[kind].value;
   }
 
-  function renderMinorStrip() {
-    const btn = $('minorBtn'), strip = $('minorStrip');
-    btn.classList.toggle('on', !!S.minor);
-    btn.innerHTML = `${ICON.minor}<span>${S.minor ? `Minor: ${esc(S.minor.shortName)}` : 'Add a minor'}</span>`;
-    strip.hidden = !S.minor;
-    if (!S.minor) return;
-    if (S.minor.own) {
+  function renderMinorStrip() { renderAddOnStrip('minor', 'minorBtn', 'minorStrip'); renderAddOnStrip('cert', 'certBtn', 'certStrip'); }
+  const openAddOn = (kind) => { ADD = kind; showMinorPlanner(); };
+  function renderAddOnStrip(kind, btnId, stripId) {
+    const btn = $(btnId), strip = $(stripId), A = ADDONS[kind], add = S[kind];
+    btn.classList.toggle('on', !!add);
+    btn.innerHTML = `${ICON[kind]}<span>${add ? `${A.Word}: ${esc(add.shortName)}` : `Add a ${A.word}`}</span>`;
+    btn.title = add ? add.name : `Add a UT Austin ${A.word}`;
+    strip.hidden = !add;
+    if (!add) return;
+    if (add.own) {
       const ev = evaluateOwnMinor(), total = S.minor.totalHours || 1;
       const pct = (h) => Math.min(100, (h / total) * 100);
       const left = ev.groups.filter((x) => x.planned < x.g.hours).length;
@@ -2536,34 +2601,38 @@
         `<div class="ms-bar"><div class="ms-track"><i class="planned" style="width:${pct(ev.planned)}%"></i><i class="done" style="width:${pct(ev.done)}%"></i></div>` +
         `<div class="ms-nums"><b>${ev.planned}</b> of ${total} hrs planned · <b>${ev.done}</b> completed · ` +
         `${left ? `${left} requirement${left === 1 ? '' : 's'} still open` : 'every requirement is planned'}</div></div>` +
-        `<div class="ms-actions"><button class="btn" id="msOpen">Open minor planner</button></div>`;
-      $('msOpen').addEventListener('click', showMinorPlanner);
+        `<div class="ms-actions"><button class="btn">Open minor planner</button></div>`;
+      strip.querySelector('.ms-actions button').addEventListener('click', () => openAddOn(kind));
       return;
     }
     if (!MN) {
-      strip.innerHTML = `<div class="ms-label"><small>Minor</small><strong>${esc(S.minor.name)}</strong></div><div class="ms-nums">Loading requirements…</div>`;
-      loadMinors().then(() => { if (S.minor) paint(); }).catch(() => {});
+      strip.innerHTML = `<div class="ms-label"><small>${A.Word}</small><strong>${esc(add.name)}</strong></div><div class="ms-nums">Loading requirements…</div>`;
+      loadMinors().then(() => { if (S[kind]) paint(); }).catch(() => {});
       return;
     }
-    if (!MN.data.minors[S.minor.id]) { strip.innerHTML = `<div class="ms-nums">${esc(S.minor.name)} is not in the current minor data.</div>`; return; }
-    const { minor, done, planned } = evaluateMinor();
-    const total = minor.totalHours || S.minor.totalHours || 1;
+    if (!MN.data.minors[add.id]) { strip.innerHTML = `<div class="ms-nums">${esc(add.name)} is not in the current ${A.word} data.</div>`; return; }
+    const { minor, done, planned } = evaluateMinor(kind);
+    const total = minor.totalHours || add.totalHours || 1;
     const pct = (h) => Math.min(100, (h / total) * 100);
     const left = planned.requirements.filter((r) => r.status !== 'complete' && r.status !== 'not-applicable').length;
-    strip.innerHTML = `<div class="ms-label"><small>Minor</small><strong>${esc(minor.name)}</strong></div>` +
+    const lacking = kind === 'cert' ? [...analyze(S.plan).missing.keys()].filter((id) => C[id].cat === 'cert').length : 0;
+    strip.innerHTML = `<div class="ms-label"><small>${A.Word}</small><strong>${esc(minor.name)}</strong></div>` +
       `<div class="ms-bar"><div class="ms-track"><i class="planned" style="width:${pct(planned.hoursApplied)}%"></i><i class="done" style="width:${pct(done.hoursApplied)}%"></i></div>` +
       `<div class="ms-nums"><b>${Math.min(planned.hoursApplied, total)}</b> of ${total} hrs planned · <b>${done.hoursApplied}</b> completed · ` +
-      `${left ? `${left} requirement${left === 1 ? '' : 's'} still open` : 'every requirement is planned'}</div></div>` +
-      `<div class="ms-actions"><button class="btn" id="msOpen">Open minor planner</button></div>`;
-    $('msOpen').addEventListener('click', showMinorPlanner);
+      `${left ? `${left} requirement${left === 1 ? '' : 's'} still open` : 'every requirement is planned'}` +
+      `${lacking ? ` · <span class="ms-warn">${lacking} course${lacking === 1 ? '' : 's'} missing a prerequisite</span>` : ''}</div></div>` +
+      `<div class="ms-actions"><button class="btn">Open ${A.word} planner</button></div>`;
+    strip.querySelector('.ms-actions button').addEventListener('click', () => openAddOn(kind));
   }
-  $('minorBtn').addEventListener('click', () => (S.minor ? showMinorPlanner() : showMinorPicker()));
+  $('minorBtn').addEventListener('click', () => { ADD = 'minor'; if (S.minor) showMinorPlanner(); else showMinorPicker(); });
+  $('certBtn').addEventListener('click', () => { ADD = 'cert'; if (S.cert) showMinorPlanner(); else showMinorPicker(); });
 
   // ---- the minor planner
   function showMinorPlanner() {
-    if (!S.minor) { showMinorPicker(); return; }
-    if (S.minor.own) { showOwnMinorPlanner(); return; }
-    if (!MN) { openModal('<h2 id="modalTitle">Minor planner</h2><p class="m-sub">Loading…</p>'); loadMinors().then(showMinorPlanner); return; }
+    const A = ADDONS[ADD];
+    if (!S[ADD]) { showMinorPicker(); return; }
+    if (S[ADD].own) { showOwnMinorPlanner(); return; }
+    if (!MN) { openModal(`<h2 id="modalTitle">${A.Word} planner</h2><p class="m-sub">Loading…</p>`); loadMinors().then(showMinorPlanner); return; }
     const keepScroll = !$('modal').hidden && $('mnPlanner') ? document.querySelector('.modal').scrollTop : 0;
     const { minor, done, planned, outside } = evaluateMinor();
     const index = MN.data.index.find((e) => e.id === minor.id) || {};
@@ -2571,6 +2640,9 @@
     const e = minor.eligibility || {};
     const total = minor.totalHours;
     const pct = (h) => Math.min(100, (h / total) * 100);
+    // Certificate courses the student picked that need a prerequisite the plan doesn't have, per requirement block.
+    const lacks = ADD === 'cert' ? analyze(S.plan).missing : new Map();
+    let warned = new Map();
 
     const chip = (code) => {
       const id = planIdFor(code);
@@ -2584,10 +2656,12 @@
       if (id) {
         const isDone = S.done.has(id);
         const when = isDone ? 'completed' : nameAt(semOf(S.plan, id));
-        // Courses added for the minor come out again with a second click; degree-plan courses only open their card.
-        if (C[id].cat === 'minor') {
-          return `<button class="mn-chip inplan minorcard${isDone ? ' done' : ''}" data-remove="${esc(id)}" title="Remove ${esc(displayCode(code))} from your plan">` +
-            `${ICON.tick}${esc(displayCode(code))}<small class="when">${esc(when)}</small><small class="rm">Remove</small></button>`;
+        // Courses added for this minor or certificate come out again with a second click; others only open their card.
+        if (C[id].cat === ADD) {
+          const need = lacks.get(id);
+          if (need) warned.set(id, need);
+          return `<button class="mn-chip inplan minorcard${isDone ? ' done' : ''}${need ? ' lacks' : ''}" data-remove="${esc(id)}" title="${need ? `Needs ${esc(need.join('; '))}. ` : ''}Remove ${esc(displayCode(code))} from your plan">` +
+            `${need ? ICON.alert : ICON.tick}${esc(displayCode(code))}<small class="when">${esc(when)}</small><small class="rm">Remove</small></button>`;
         }
         return `<button class="mn-chip inplan${isDone ? ' done' : ''}" data-go="${esc(id)}" title="${esc(title)}: part of your degree plan">${ICON.tick}${esc(displayCode(code))}<small>${esc(when)}</small></button>`;
       }
@@ -2624,18 +2698,29 @@
       const rp = planned.requirements[i], rd = done.requirements[i];
       const title = n.label || n.area || (n.type === 'course' ? 'Required course' : n.type === 'distribution' ? 'Distribution' : 'Elective hours');
       const applied = (rp.applied || []).map((a) => esc(displayCode(a.code))).join(', ');
+      warned = new Map();
+      const options = optionsOf(n);
+      const warnings = [...warned].map(([id, need]) => `<p class="mn-warn">${ICON.alert}<span><b>${esc(C[id].code)}</b> needs ${esc(need.join('; '))}, which ${need.length === 1 ? 'isn\'t' : 'aren\'t'} in your four-year plan.</span></p>`).join('');
       return `<div class="mn-req"><div class="mn-req-head"><h3>${esc(title)}<small>${n.hours != null ? `${n.hours} hrs` : ''}</small></h3>${statusTag(rp, rd)}</div>` +
         (n.type === 'conditional' ? `<p>Applies if the ${esc(n.when)}.${rp.status === 'not-applicable' && n.otherwise && n.otherwise.text ? ` ${esc(n.otherwise.text)}` : ''}</p>` : '') +
         (n.catalogText && n.type !== 'open' ? `<p>${esc(n.catalogText)}</p>` : '') +
         (n.note ? `<p>${esc(n.note)}</p>` : '') +
         (applied ? `<p>Counting: <b>${applied}</b></p>` : '') +
-        optionsOf(n) + `</div>`;
+        options + warnings + `</div>`;
     };
 
     const rule = (ok, text) => `<li class="${ok === true ? 'ok' : ok === false ? 'no' : 'info'}">${ok === true ? ICON.ok : ok === false ? ICON.x : ICON.info}<span>${text}</span></li>`;
     const gpaCheck = done.ruleChecks.find((c) => c.rule === 'minCombinedGpa');
     const upper = planned.ruleChecks.find((c) => c.rule === 'upperDivisionMinHours');
-    const rules = [
+    const certRules = [
+      gpaCheck ? rule(gpaCheck.ok, `Combined GPA of at least ${gpaCheck.required.toFixed(2)} in certificate courses${gpaCheck.actual != null ? `: currently ${gpaCheck.actual.toFixed(2)}` : ' (no grades yet)'}.`) : '',
+      rule(outside > 0 ? true : null, `At least one certificate course must be outside your major's requirements: ${outside} hours planned in courses outside your degree plan.`),
+      rule(null, 'You can\'t earn a certificate in the same field as your major.'),
+      rule(null, 'At least half the certificate\'s hours must be taken in residence at UT Austin.'),
+      rule(null, 'Apply for the certificate when you apply for graduation or when you finish it, whichever is later.'),
+      minor.rules && minor.rules.program && minor.rules.program.minGradeEachCourse ? rule(null, `Each certificate course needs a ${esc(minor.rules.program.minGradeEachCourse)} or better.`) : '',
+    ].join('');
+    const rules = ADD === 'cert' ? certRules : [
       gpaCheck ? rule(gpaCheck.ok, `Combined GPA of at least ${gpaCheck.required.toFixed(2)} in minor courses${gpaCheck.actual != null ? `: currently ${gpaCheck.actual.toFixed(2)}` : ' (no grades yet)'}.`) : '',
       upper ? rule(upper.actual >= 6 ? true : null, `At least 6 upper-division hours: ${upper.actual} planned.`) : '',
       rule(outside >= 9 ? true : null, `At least 9 minor hours can't also count toward your major: ${outside} planned in courses outside your degree plan.`),
@@ -2647,7 +2732,7 @@
     const cautions = [...(minor.warnings || []), ...planned.review, ...planned.rejectedCourses.map((r) => `${displayCode(r.code)} can't count: ${r.why}.`)];
     const src = safeUrl(minor.sourceUrl);
 
-    openModal(`<div id="mnPlanner"><h2 id="modalTitle">${esc(minor.name)}</h2>` +
+    openModal(`<div id="mnPlanner" class="addon-${ADD}"><h2 id="modalTitle">${esc(minor.name)}</h2>` +
       `<div class="mn-head"><p class="m-sub">${esc(minor.college)} · ${total} hours${src ? ` · <a href="${src}" target="_blank" rel="noopener">Catalog page</a>` : ''}</p>` +
         `<div class="mn-progress"><div class="ms-track"><i class="planned" style="width:${pct(planned.hoursApplied)}%"></i><i class="done" style="width:${pct(done.hoursApplied)}%"></i></div>` +
         `<div class="ms-nums"><b>${Math.min(planned.hoursApplied, total)}</b> of ${total} hrs planned · <b>${done.hoursApplied}</b> completed</div></div></div>` +
@@ -2655,12 +2740,14 @@
         `${e.applicationRequired ? ' Application required.' : ''}${e.timing ? ` ${esc(e.timing)}` : ''}` +
         `${notes.length ? `<ul>${notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}</div>` +
       `<h3 class="mn-h">Requirements</h3>` +
-      `<p class="m-sub">Add a course with <b>+</b>: it goes in the earliest semester that works, after any prerequisite that is part of this minor (that prerequisite is added too). ` +
-      `Click a pink course again to take it back out. Green courses are part of your degree plan and count toward the minor too.</p>` +
+      `<p class="m-sub">${ADD === 'cert'
+        ? 'Click a course to add it: only that course is added, in the earliest semester that works. If it needs a prerequisite that isn\'t in your plan, you\'ll see a warning. '
+        : `Add a course with <b>+</b>: it goes in the earliest semester that works, after any prerequisite that is part of this ${A.word} (that prerequisite is added too). `}` +
+      `Click a ${A.color} course again to take it back out. Green courses are already in your plan and count toward the ${A.word} too.</p>` +
       minor.requirements.map(reqBlock).join('') +
       `<h3 class="mn-h">Rules</h3><ul class="mn-rules">${rules}</ul>` +
       (cautions.length ? `<div class="mn-box" style="margin-top:14px"><b>Check with the program:</b><ul>${cautions.map((c) => `<li>${esc(c)}</li>`).join('')}</ul></div>` : '') +
-      `<div class="m-actions"><button class="btn ghost" id="mnRemove">Remove minor</button><button class="btn ghost" id="mnChange">Change minor</button><button class="btn primary" id="mnDone">Done</button></div></div>`);
+      `<div class="m-actions"><button class="btn ghost" id="mnRemove">Remove ${A.word}</button><button class="btn ghost" id="mnChange">Change ${A.word}</button><button class="btn primary" id="mnDone">Done</button></div></div>`);
 
     const body = $('modalBody');
     body.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => requestMinorCourse(b.dataset.add)));
@@ -2689,7 +2776,7 @@
     });
     $('mnRemove').addEventListener('click', confirmRemoveMinor);
     $('mnChange').addEventListener('click', () => {
-      const n = Object.values(S.custom).filter((c) => c.cat === 'minor').length;
+      const n = Object.values(S.custom).filter((c) => c.cat === ADD).length;
       if (n) { confirmRemoveMinor(); return; }
       removeMinor(true);
       showMinorPicker();
@@ -2941,8 +3028,8 @@
   // Students can recolor each degree requirement. Colors are saved per program, since programs
   // name their requirements differently. Every color gets a pale tint for card backgrounds and a
   // dark "ink" for text on that tint, so any choice stays readable.
-  const DEFAULT_COLORS = { major: '#E0731A', stem: '#2C9A57', core: '#2E77CC', alt: '#8A4FD3', tech: '#0D8C80', minor: '#C2418E' };
-  const DEFAULT_TINTS = { major: '#FDEFE2', stem: '#E4F4EA', core: '#E4EEFA', alt: '#F0E8FC', tech: '#DFF3F0', minor: '#F9E9F3' };
+  const DEFAULT_COLORS = { major: '#E0731A', stem: '#2C9A57', core: '#2E77CC', alt: '#8A4FD3', tech: '#0D8C80', minor: '#C2418E', cert: '#A67C00' };
+  const DEFAULT_TINTS = { major: '#FDEFE2', stem: '#E4F4EA', core: '#E4EEFA', alt: '#F0E8FC', tech: '#DFF3F0', minor: '#F9E9F3', cert: '#F8F1DC' };
   const PALETTE = [
     ['#E0731A', 'Orange'], ['#BF5700', 'Burnt orange'], ['#D6455D', 'Red'], ['#C2418E', 'Magenta'], ['#8A4FD3', 'Purple'], ['#4F5BD5', 'Indigo'],
     ['#2E77CC', 'Blue'], ['#0D8C80', 'Teal'], ['#2C9A57', 'Green'], ['#7A9A1F', 'Olive'], ['#C98A00', 'Gold'], ['#5B6B7F', 'Slate'],
@@ -3478,8 +3565,8 @@
   const pdfDate = () => new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   function exportInfo() {
     const ut = 'The University of Texas at Austin';
-    if (!P.own) return { school: ut, program: programName(), detail: `${P.dept} · ${P.degree}`, minor: S.minor ? S.minor.name : '' };
-    return { school: P.def.school || (P.ut ? ut : ''), program: P.def.program || 'My degree plan', detail: '', minor: S.minor ? S.minor.name : '' };
+    if (!P.own) return { school: ut, program: programName(), detail: `${P.dept} · ${P.degree}`, minor: addOnNames() };
+    return { school: P.def.school || (P.ut ? ut : ''), program: P.def.program || 'My degree plan', detail: '', minor: addOnNames() };
   }
   // A course as both PDFs show it; a slot filled from a transcript shows the course that filled it.
   function exportRow(id) {
@@ -3676,7 +3763,9 @@
     // Lines: a prerequisite leaves the right side of its box and ends in an arrow at the left side of the course
     // that needs it. A co-requisite in the same semester is a dashed loop on the right; a link the plan has out of
     // order is red. Each line gets its own spot on a box's side, ordered by where the other box is.
-    const links = EDGES.filter((e) => at.has(e.from) && at.has(e.to)).map((e) => {
+    const links = EDGES.filter((e) => at.has(e.from) && at.has(e.to)).map((edge) => {
+      // A free co-requisite line reads left to right, whichever course the plan puts first.
+      const e = edge.free && at.get(edge.to).k < at.get(edge.from).k ? { ...edge, from: edge.to, to: edge.from } : edge;
       const a = at.get(e.from), b = at.get(e.to);
       const kind = b.k > a.k ? 'fwd' : b.k === a.k ? 'same' : 'back';
       return { e, kind, co: e.type === 'co', broken: kind === 'back' || (kind === 'same' && e.type === 'pre') };
@@ -3754,6 +3843,8 @@
     const itemsOf = (id, type) => {
       const out = [], groups = new Set();
       for (const e of ALL_EDGES) {
+        // Co-requisites of each other are listed on both rows, so the file reads back the same way.
+        if (e.free && e.from === id && type === 'co' && at.has(e.to)) { out.push(lab(e.to)); continue; }
         if (e.to !== id || e.type !== type || !at.has(e.from)) continue;
         if (!e.any) { out.push(lab(e.from)); continue; }
         const key = e.any.slice().sort().join('|');
