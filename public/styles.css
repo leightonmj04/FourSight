@@ -32,7 +32,7 @@
   --edge-lit: #2B3440;
 
   --col-w: 236px;
-  --col-gap: 150px;
+  --col-gap: 148px;
   --card-h: 66px;
   --radius: 12px;
   --shadow: 0 1px 2px rgba(20, 20, 20, .06), 0 4px 14px rgba(20, 20, 20, .05);
@@ -74,6 +74,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .brand-sub > span:last-child { font-size: 12px; color: var(--ink-3); display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .link-btn { all: unset; cursor: pointer; font-size: 12px; font-weight: 650; color: var(--ut); }
 .link-btn:hover { text-decoration: underline; }
+.span-btn { margin-left: 8px; text-transform: none; letter-spacing: 0; }
 .link-btn:focus-visible { outline: 2px solid var(--ut); outline-offset: 2px; border-radius: 3px; }
 @keyframes shine { 0%, 55% { background-position: 100% 0; } 85%, 100% { background-position: 0 0; } }
 @keyframes sweep { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
@@ -144,6 +145,9 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
   position: relative; border: 0; background: transparent; padding: 6px 4px; border-radius: 8px;
   font-size: 12.5px; font-weight: 650; color: var(--ink-2); display: flex; flex-direction: column; align-items: center; gap: 1px;
 }
+.semnav-track { user-select: none; touch-action: pan-y; }
+.semnav-track.over-window, .semnav-track.over-window button { cursor: grab; }
+.semnav.dragging .semnav-track, .semnav.dragging button { cursor: grabbing; }
 .semnav button small { font-size: 10.5px; color: var(--ink-3); font-weight: 600; }
 .semnav button .dot { position: absolute; top: 5px; right: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--bad); transform: scale(0); transition: transform .3s cubic-bezier(.3, 1.6, .5, 1); }
 .semnav button.has-bad .dot { transform: scale(1); }
@@ -151,10 +155,11 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 /* ---------- Flowchart viewport ---------- */
 .viewport {
   position: relative; flex: 1; min-height: 0; overflow-x: auto; overflow-y: auto;
+  margin-right: 34px; /* room for the Feedback tab, so it never covers a course */
   scrollbar-width: thin; scrollbar-color: #CFCAC2 transparent;
   cursor: grab; overscroll-behavior-x: contain;
-  -webkit-mask: linear-gradient(90deg, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
-          mask: linear-gradient(90deg, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+  -webkit-mask: linear-gradient(90deg, transparent 0, #000 28px, #000 calc(100% - 12px), transparent 100%);
+          mask: linear-gradient(90deg, transparent 0, #000 28px, #000 calc(100% - 12px), transparent 100%);
 }
 .viewport.panning { cursor: grabbing; }
 .track {
@@ -206,7 +211,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .card .title { font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card .flag { position: absolute; right: 8px; bottom: 7px; width: 16px; height: 16px; display: none; }
 .card.optional { background: repeating-linear-gradient(-45deg, var(--t) 0 8px, rgba(255, 255, 255, .55) 8px 16px); }
-.card .opt { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); margin-left: 4px; }
+.card .opt { font-size: 10px; font-weight: 700; color: var(--ink-3); margin-left: 4px; }
 .card:hover { box-shadow: var(--shadow-lift); }
 .card.bad { outline-color: var(--bad); }
 .card.bad .flag { display: block; color: var(--bad); }
@@ -339,6 +344,12 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .arow.full .name::after { content: " \2713"; color: var(--ok); }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 @media (max-width: 1100px) {
+  /* The audit stacks here, so the page scrolls and the flowchart keeps a usable height. */
+  .app { height: auto; min-height: 100%; }
+  .viewport { flex: none; height: 620px; }
+  .app.panels-collapsed .viewport { height: calc(100vh - 140px); }
+  .dock-tips { width: 100%; }
+  .dock:not(.no-main) { flex-wrap: wrap; }
   .audit { grid-template-columns: 1fr; }
   .audit-overview { padding-right: 0; border-right: 0; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 }
@@ -433,6 +444,17 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .dl-copy strong { font-size: 13.5px; font-weight: 650; color: var(--ink); }
 .dl-copy span { font-size: 12px; line-height: 1.4; color: var(--ink-2); }
 
+/* ---------- Settings and profile ---------- */
+.settings-pop { width: 280px; }
+.pf-h { margin: 22px 0 12px; font-size: 14px; font-weight: 700; color: var(--ink); }
+.pf-form .pf-h:first-child { margin-top: 0; }
+.pf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.pf-grid .ac-field { min-width: 0; }
+.pf-grid .ac-field input, .pf-grid .ac-field select { width: 100%; box-sizing: border-box; }
+.pf-form .pf-hint { margin: 10px 0 0; }
+.pf-form .sp-label { font-size: 12px; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; }
+.pf-form .ac-error { margin-top: 12px; }
+
 /* ---------- Course type dropdown ---------- */
 .legend { align-items: center; }
 .typedrop { position: relative; }
@@ -511,12 +533,12 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .term-remove:disabled { opacity: .35; cursor: not-allowed; }
 .add-summer {
   position: absolute; top: 20px; right: calc(var(--col-gap) / -2); transform: translateX(50%); z-index: 3;
-  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
-  padding: 6px 11px 6px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #9A5B00;
+  display: inline-flex; align-items: center; gap: 3px; white-space: nowrap;
+  padding: 4px 7px 4px 5px; border-radius: 999px; font-size: 11px; font-weight: 700; color: #9A5B00;
   background: #FFF6E6; border: 1.5px dashed rgba(208, 138, 0, .55); opacity: .75;
   transition: opacity .2s, transform .2s, background .2s, box-shadow .2s;
 }
-.add-summer svg { width: 13px; height: 13px; stroke-width: 2.4; }
+.add-summer svg { width: 10px; height: 10px; stroke-width: 2.4; }
 .add-summer:hover { opacity: 1; background: #FFEFD2; transform: translateX(50%) translateY(-1px); box-shadow: 0 6px 16px rgba(208, 138, 0, .18); }
 .add-col { padding-top: 58px; }
 .add-term {
@@ -549,15 +571,15 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .dock-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .dock-text strong { font-size: 14px; }
 .dock-text span { font-size: 12.5px; color: var(--ink-3); }
-.dock-actions { display: flex; gap: 10px; margin-left: auto; flex-wrap: wrap; }
+.dock-actions { display: flex; flex: none; gap: 10px; margin-left: auto; flex-wrap: wrap; }
 /* Transcript upload hidden: only the hint is left, and below 1100px (where the hint hides) nothing is. */
 .dock.no-main .dock-main { display: none; }
-.dock.no-main .hint { max-width: none; text-align: left; }
-@media (max-width: 1100px) { .dock.no-main { display: none; } }
+.dock-tips { display: flex; flex-direction: column; flex: none; gap: 3px; width: 480px; text-align: right; }
+.dock.no-main .dock-tips { flex: 1; flex-direction: row; flex-wrap: wrap; justify-content: space-between; gap: 3px 24px; width: auto; text-align: left; }
+.dock-note { margin: 0; font-size: 12px; line-height: 1.4; color: var(--ink-2); }
 .btn.primary { background: var(--ut); border-color: var(--ut); color: #fff; }
 .btn.primary:hover { background: var(--ut-dark); border-color: var(--ut-dark); }
-.hint { margin: 0; font-size: 12px; color: var(--ink-3); max-width: 260px; text-align: right; line-height: 1.4; }
-@media (max-width: 1100px) { .hint { display: none; } }
+.hint { margin: 0; font-size: 12px; color: var(--ink-3); line-height: 1.4; }
 @media (max-width: 720px) {
   .dock { padding: 12px 16px; }
   .dock-main { flex-wrap: wrap; }
@@ -571,31 +593,34 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
   content: "Courses you already have credit for go here. Drag them in, or add one below.";
   display: block; padding: 22px 16px 6px; font-size: 12.5px; line-height: 1.5; color: var(--ink-3); text-align: center;
 }
-/* The tab that adds it: a tall purple tab in the margin left of the first semester, centered on the flowchart, always
-   in color like the summer pills but upright and solid-edged rather than a dashed pill. */
-.track.can-claim { padding-left: 82px; }
+/* The tab that adds it: a tall purple tab in the margin left of the first semester. Its left edge lines up with the
+   page margin and it is centered on the Year 1 block, staying on screen when the block runs past the board's edge,
+   always in color like the summer pills but upright and solid-edged rather than a dashed pill. */
+.track.can-claim { padding-left: 76px; }
+.claim-slot { position: absolute; top: -6px; left: -44px; z-index: 3; width: 24px; min-height: 190px; display: flex; align-items: center; pointer-events: none; }
 .add-claim {
-  position: absolute; top: 50%; left: -54px; z-index: 3; transform: translateY(-50%);
-  width: 32px; min-height: 260px; padding: 10px 0 16px; border-radius: 16px;
-  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  position: sticky; top: 12px; bottom: 12px; pointer-events: auto;
+  width: 24px; min-height: 190px; padding: 6px 0 14px; border-radius: 12px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
   background: linear-gradient(180deg, #F6F0FE, #EEE4FC); color: #6B3BB0;
   border: 1.5px solid rgba(138, 79, 211, .38); box-shadow: 0 2px 8px rgba(138, 79, 211, .10);
-  transition: transform .2s, background .2s, box-shadow .2s, border-color .2s;
+  transition: background .2s, box-shadow .2s, border-color .2s;
 }
 .claim-plus {
-  display: grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 50%;
+  display: grid; place-items: center; width: 16px; height: 16px; flex: none; border-radius: 50%;
   background: #8A4FD3; color: #fff; transition: transform .3s;
 }
-.claim-plus svg { width: 12px; height: 12px; stroke-width: 2.6; }
+.claim-plus svg { width: 10px; height: 10px; stroke-width: 2.8; }
 .claim-text {
   writing-mode: vertical-rl; transform: rotate(180deg);
-  font-size: 12px; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap;
+  font-size: 11px; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap;
 }
 .add-claim:hover, .add-claim:focus-visible {
-  outline: none; transform: translateY(-50%) translateX(2px); border-color: rgba(138, 79, 211, .6);
+  outline: none; border-color: rgba(138, 79, 211, .6);
   background: linear-gradient(180deg, #F1E7FD, #E6D7FB); box-shadow: 0 8px 20px rgba(138, 79, 211, .22);
 }
 .add-claim:hover .claim-plus { transform: rotate(90deg); }
+.col-after { margin: -2px 0 8px; padding: 0 4px; font-size: 11.5px; font-weight: 650; color: var(--bad); }
 .col.credit .col-title { font-size: 14.5px; white-space: nowrap; gap: 5px; }
 .col.credit .col-title svg { width: 15px; height: 15px; color: var(--alt); }
 .band.credit { background: rgba(240, 232, 252, .6); }
@@ -737,13 +762,6 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .pn-links a { color: var(--ut-dark); font-weight: 600; }
 
 /* ---------- Course type colors ---------- */
-.td-colors {
-  display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 4px; padding: 10px 10px 8px; border: 0;
-  border-top: 1px solid var(--line); border-radius: 0 0 9px 9px; background: transparent;
-  font-size: 13px; font-weight: 650; color: var(--ut-dark); text-align: left; white-space: nowrap; cursor: pointer;
-}
-.td-colors svg { width: 15px; height: 15px; }
-.td-colors:hover { background: #FBEBDD; }
 .cc-list { display: flex; flex-direction: column; }
 .cc-row { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; border-top: 1px solid var(--line); }
 .cc-row:first-child { border-top: 0; padding-top: 2px; }
@@ -772,11 +790,13 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 
 /* ---------- Minors ---------- */
 .minor-btn { flex: none; max-width: 240px; }
+/* A chosen minor or certificate has a long name, so it shares the room with the degree plan. */
+.minor-btn.on { flex: 0 1 240px; min-width: 110px; }
 .minor-btn span { overflow: hidden; text-overflow: ellipsis; }
 /* Certificates use the minor styles in their own color. */
 .addon-cert { --minor: var(--cert); --minor-tint: var(--cert-tint); --minor-ink: var(--cert-ink); }
 .minor-btn.on { background: var(--minor-tint); border-color: var(--minor); color: var(--minor-ink); }
-.minor-btn svg { width: 15px; height: 15px; }
+.minor-btn svg { width: 15px; height: 15px; flex: none; }
 .minor-strip {
   grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   padding: 14px 16px; margin-top: 2px; border-radius: 14px; background: var(--minor-tint); border: 1px solid rgba(0, 0, 0, .04);
@@ -805,7 +825,6 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .mp-item:hover, .mp-item:focus-visible { background: #FAF9F7; border-color: var(--line); }
 .mp-item .mp-name { font-weight: 650; font-size: 14px; flex: 1; min-width: 0; }
 .mp-item .mp-name small { display: block; font-weight: 500; font-size: 12px; color: var(--ink-3); margin-top: 2px; }
-.mp-tags { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .tagp { font-size: 11.5px; font-weight: 700; padding: 3px 8px; border-radius: 99px; background: #F3F1ED; color: var(--ink-2); white-space: nowrap; }
 .tagp.ok { background: #E9F6EE; color: #1F7A43; }
 .tagp.no { background: #FDECEC; color: #A02428; }
@@ -832,6 +851,18 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 }
 .mn-chip svg { width: 13px; height: 13px; stroke-width: 2.4; }
 .mn-chip small { font-weight: 600; color: var(--ink-3); }
+/* The course name, inside the chip while hovered, over its neighbors so the chips don't move. */
+.mn-chip { position: relative; }
+.mn-chip:hover, .mn-chip:focus-visible { z-index: 3; }
+.mn-chip .nm { display: none; }
+.mn-chip:hover .nm, .mn-chip:focus-visible .nm {
+  display: flex; align-items: center; position: absolute; left: calc(100% - 7px); top: -1.5px; min-height: calc(100% + 3px); box-sizing: border-box; padding: 0 10px 0 6px;
+  width: max-content; line-height: 1.3; text-align: left;
+  background: inherit; border: inherit; border-left: 0; border-radius: 0 8px 8px 0;
+}
+.mn-chip.nm-left:hover .nm, .mn-chip.nm-left:focus-visible .nm {
+  left: auto; right: calc(100% - 7px); padding: 0 6px 0 10px; border: inherit; border-right: 0; border-radius: 8px 0 0 8px;
+}
 .mn-chip.add:hover { border-color: var(--minor); color: var(--minor-ink); }
 .mn-chip.inplan { border-color: #BFE3CC; background: #F1F9F4; color: #1F5A37; }
 .mn-chip.inplan.minorcard { border-color: var(--minor); background: var(--minor-tint); color: var(--minor-ink); }
@@ -913,6 +944,11 @@ body.welcoming .app { visibility: hidden; }
   margin: 10px 0 28px; font-family: Sora, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-weight: 650;
   font-size: clamp(27px, 4.2vw, 40px); line-height: 1.15; letter-spacing: -.035em; color: var(--ink); text-wrap: balance;
 }
+.sp-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.sp-label { width: 120px; flex: none; font-size: 14px; font-weight: 650; color: var(--ink-2); }
+.sp-row select { flex: 1; min-width: 0; height: 42px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); font: inherit; font-size: 14.5px; color: var(--ink); }
+.sp-row select:focus-visible { outline: 2px solid var(--ut); outline-offset: 1px; }
+.sp-err { margin: 2px 0 12px; font-size: 13px; color: var(--bad); }
 .wc-sub { margin: -14px 0 24px; font-size: 15px; line-height: 1.55; color: var(--ink-2); max-width: 62ch; }
 .wc-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .wc-choice {
@@ -1061,7 +1097,7 @@ button.wc-major:hover { transform: translateY(-2px); border-color: rgba(191, 87,
 .fb-row { display: flex; align-items: flex-start; gap: 14px; padding: 11px 16px; border-bottom: 1px solid var(--line); transition: background .2s; }
 .fb-body { display: block; padding: 12px 16px 14px; transition: background .2s; }
 .fb-row:focus-within, .fb-body:focus-within { background: #FCFAF7; }
-.fb-label { width: 84px; flex: none; padding-top: 2px; font-size: 13px; font-weight: 650; color: var(--ink-3); }
+.fb-label { width: 88px; flex: none; white-space: nowrap; padding-top: 2px; font-size: 13px; font-weight: 650; color: var(--ink-3); }
 .fb-body .fb-label { display: block; width: auto; margin-bottom: 8px; padding-top: 0; }
 .fb-to { font-size: 14.5px; font-weight: 600; color: var(--ink-2); }
 .fb-row input, .fb-row textarea, .fb-body textarea {
@@ -1085,18 +1121,26 @@ button.wc-major:hover { transform: translateY(-2px); border-color: rgba(191, 87,
 .fb-sent-ico svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .fb-sent h2 { margin: 0 0 8px; }
 .fb-sent .m-actions { justify-content: center; }
-@media (max-width: 720px) { .fb-label { width: 72px; } .fb-row { gap: 10px; padding: 10px 12px; } .fb-body { padding: 10px 12px 12px; } }
+@media (max-width: 720px) { .fb-label { width: 84px; } .fb-row { gap: 10px; padding: 10px 12px; } .fb-body { padding: 10px 12px 12px; } }
 
 /* Welcome screen: majors under their college, styled like the minor picker's college headings. */
 .wc-college { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); margin: 18px 0 8px; }
 
 /* The top bar holds the plan menu and both add-on buttons: the menu gives way first, then its label, then a second row. */
-.program-picker { flex: 0 1 440px; min-width: 170px; }
+.program-picker { flex: 0 1 440px; min-width: 190px; }
 .program-picker > span { flex: none; }
 .topbar .brand-sub > span:last-child, .topbar .brand-sub > span:first-child { white-space: nowrap; }
-@media (max-width: 1420px) {
+@media (max-width: 1560px) {
   .program-picker > span { display: none; }
+}
+@media (max-width: 1460px) {
+  #settingsBtn .btn-text { display: none; }
+}
+@media (max-width: 1420px) {
   .minor-btn { max-width: 170px; }
+}
+@media (max-width: 1320px) {
+  #newPlanBtn .btn-text { display: none; }
 }
 @media (max-width: 1240px) {
   .topbar { flex-wrap: wrap; row-gap: 10px; }
@@ -1111,3 +1155,146 @@ button.wc-major:hover { transform: translateY(-2px); border-color: rgba(191, 87,
 .mn-req p.mn-warn { display: flex; align-items: flex-start; gap: 7px; margin: 10px 0 0; padding: 8px 11px; border-radius: 9px; background: #FFF6DE; color: #7A5600; }
 .mn-warn svg { flex: none; width: 14px; height: 14px; margin-top: 2px; }
 .ms-warn { color: #7A5600; font-weight: 650; }
+
+/* ---------- Columns / Overview switch ---------- */
+/* The planner's header: always shown, above the board, whether or not the audit and toolbar are. */
+.board-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 46px 0 32px; position: relative; z-index: 3; }
+/* The top bar's menus (Settings, add-ons) open over the planner's header and the view switch. */
+.topbar { z-index: 10; }
+.board-left { display: flex; align-items: center; gap: 18px; min-width: 0; }
+.board-title { font-size: 11px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+.view-switch {
+  display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; flex: none;
+  background: var(--panel); border: 1px solid var(--line); box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+}
+.view-switch button {
+  display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; padding: 4px 10px 4px 8px;
+  border-radius: 8px; font-size: 12.5px; font-weight: 650; color: var(--ink-2); cursor: pointer; transition: background .2s, color .2s, box-shadow .2s;
+}
+.view-switch svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.view-switch button:hover { color: var(--ink); background: #F5F3EF; }
+.view-switch button[aria-pressed="true"] { background: #FBEBDD; color: var(--ut-dark); }
+.view-switch button:focus-visible { outline: 2px solid var(--ut); outline-offset: 1px; }
+
+/* ---------- Overview: semesters as rows, top to bottom, courses as codes ---------- */
+.app.view-overview .semnav { display: none; }
+.columns.view-in { animation: viewIn .35s cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.track.vertical { --head-w: 180px; --chip-w: 118px; }
+.track.vertical, .track.vertical.can-claim { width: auto; min-width: 100%; padding: 52px 24px 30px 48px; }
+/* Room above Year 1 for the Credit claimed strip: its 36px and the 16px gap between blocks. */
+.track.vertical.can-claim { padding-top: 104px; }
+.track.vertical .columns { flex-direction: column; gap: 12px; }
+/* Each semester is its own panel: name, hours and check on the left, then its courses in even columns. */
+.track.vertical .col {
+  width: auto; display: grid; grid-template-columns: var(--head-w) minmax(0, 1fr); column-gap: 14px; align-items: start;
+  padding: 8px 12px 8px 0; border-radius: 12px; background: #fff; border: 1px solid var(--line);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .03); transition: border-color .2s, box-shadow .2s, background .2s;
+}
+/* Between years: the 36px label strip, 10px of block below the last row and a 16px gap. */
+.track.vertical .col.year-first:not(:first-child) { margin-top: 50px; }
+/* Name with its hours underneath, then the check-off circle (and remove button for summers and credit). */
+.track.vertical .col-head {
+  grid-column: 1; grid-row: 1; padding: 0 12px 0 16px; min-height: 42px; border-right: 1px solid var(--line);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-rows: auto auto; align-content: center; column-gap: 6px;
+}
+.track.vertical .col-title { grid-column: 1; grid-row: 1; margin: 0; font-size: 13.5px; white-space: nowrap; }
+.track.vertical .col-title svg { display: none; }
+.track.vertical .col-hours { grid-column: 1; grid-row: 2; margin: 1px 0 0; align-self: start; font-size: 11px; white-space: nowrap; }
+.track.vertical .col-head .term-check { grid-column: 2; grid-row: 1 / span 2; }
+.track.vertical .col-head .term-remove { grid-column: 3; grid-row: 1 / span 2; align-self: center; }
+.track.vertical .term-check { width: 20px; height: 20px; }
+.track.vertical .term-remove { width: 22px; height: 22px; }
+/* No "After your last semester" line in the overview; the extra semester's blue panel already marks it. */
+.track.vertical .col-after { display: none; }
+.track.vertical .col-body {
+  grid-column: 2; grid-row: 1 / span 2; display: flex; flex-flow: row wrap;
+  align-items: center; align-content: flex-start; gap: 10px 12px; min-height: 42px; padding: 4px 46px 4px 0; margin: 0;
+}
+.track.vertical .col-body, .track.vertical .col.summer .col-body, .track.vertical .col.extra .col-body,
+.track.vertical .col.credit .col-body, .track.vertical .col.drop-target .col-body { background: none; box-shadow: none; border-radius: 0; }
+.track.vertical .col.summer {
+  background: repeating-linear-gradient(135deg, rgba(242, 160, 61, .07) 0 10px, #fff 10px 20px); border-color: rgba(242, 160, 61, .45);
+}
+.track.vertical .col.extra { background: #F7FAFE; border-color: rgba(46, 119, 204, .3); }
+.track.vertical .col.credit { background: #FAF6FE; border-color: rgba(138, 79, 211, .3); }
+.track.vertical .col.summer .col-head, .track.vertical .col.summer .col-after { border-right-color: rgba(242, 160, 61, .3); }
+.track.vertical .col.credit .col-head { border-right-color: rgba(138, 79, 211, .2); }
+.track.vertical .col.drop-target { border-color: rgba(191, 87, 0, .55); box-shadow: 0 0 0 3px rgba(191, 87, 0, .14); }
+.track.vertical .col.drop-target.drop-bad { border-color: rgba(224, 53, 59, .6); box-shadow: 0 0 0 3px rgba(224, 53, 59, .14); }
+.track.vertical .col.summer .col-body:empty::before,
+.track.vertical .col.extra .col-body:empty::before { grid-column: 1 / -1; display: flex; align-items: center; height: 32px; margin: 0; padding-left: 4px; }
+.track.vertical .col.credit.empty .col-body::before {
+  content: "Courses you already have credit for go here. Drag them in, or add one with +.";
+  grid-column: 1 / -1; padding: 0 4px; display: flex; align-items: center; min-height: 32px; text-align: left;
+}
+.track.vertical .prior-chip { grid-column: 2; margin: 2px 0 4px; flex-direction: row; align-items: baseline; gap: 8px; padding: 5px 10px; justify-self: start; }
+/* Year blocks are a quiet tint behind the white semester panels, with the year in a strip above. */
+.track.vertical .band { background: rgba(232, 228, 221, .55); border-color: transparent; padding: 11px 16px; line-height: 14px; }
+.track.vertical .band.extra { background: rgba(220, 232, 247, .55); }
+.track.vertical .band.credit { background: rgba(236, 226, 250, .6); }
+/* Every course chip is the same size, so codes line up down the plan. A name too long for one line, such as
+   American History, wraps onto a second line inside the chip. */
+.track.vertical .card { width: var(--chip-w); height: 34px; padding: 0 10px 0 13px; flex: none; flex-direction: row; align-items: center; min-width: 0; }
+.track.vertical .card::before { width: 4px; }
+.track.vertical .card .row { min-width: 0; flex: 1; }
+.track.vertical .card .right, .track.vertical .card .title, .track.vertical .card .flag, .track.vertical .card .opt { display: none; }
+.track.vertical .card .code, .track.vertical .card.nameonly .code {
+  font-size: 13px; line-height: 14px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.track.vertical .card.nameonly .row { align-items: center; }
+.track.vertical .card.done::after, .track.vertical .card.cr.done::after {
+  content: "\2713"; position: static; margin-left: 4px; font-size: 12px; letter-spacing: 0; color: var(--i);
+}
+.track.vertical .card.cr.done::after { color: var(--alt); }
+.track.vertical .card.done.bad::after, .track.vertical .card.done.late::after { content: none; }
+.track.vertical .card.ghost { width: var(--chip-w); }
+/* Just a plus here, so a full semester still fits on one line; its tooltip and label say Add course. */
+.track.vertical .add-course { position: absolute; top: 12px; right: 12px; width: 34px; height: 34px; padding: 0; font-size: 0; gap: 0; }
+/* The summer pill sits in its year's label strip, next to the year (placed from app.js), so rows keep their width. */
+.track.vertical .add-summer { right: auto; transform: translateY(-50%); padding-top: 2px; padding-bottom: 2px; }
+.track.vertical .add-summer:hover { transform: translateY(-50%) translateY(-1px); }
+.track.vertical .add-col { display: block; padding: 0; margin-top: 10px; background: none; border: 0; box-shadow: none; }
+.track.vertical .add-term { display: inline-flex; flex-direction: row; width: auto; height: 40px; padding: 0 16px 0 10px; gap: 8px; }
+.track.vertical .add-term svg { width: 14px; height: 14px; padding: 4px; }
+.track.vertical .add-term span { font-size: 13.5px; }
+/* Credit claimed: a strip above the first semester, "Before Year 1" and a pill like the summer ones. */
+.track.vertical .claim-slot {
+  top: -88px; left: -16px; right: -16px; width: auto; height: 36px; min-height: 0; display: flex; align-items: center; gap: 14px;
+  padding-left: 16px; border-radius: 18px; background: rgba(236, 226, 250, .6); pointer-events: auto;
+}
+.track.vertical .claim-slot::before {
+  content: "Before Year 1"; font-size: 11px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3);
+}
+.track.vertical .claim-slot.no-label::before { content: none; }
+.track.vertical .add-claim {
+  position: static; width: auto; min-height: 0; flex-direction: row; gap: 3px; padding: 2px 7px 2px 5px; border-radius: 999px;
+  background: #F6F0FE; border: 1.5px dashed rgba(138, 79, 211, .5); box-shadow: none; opacity: .85;
+  transition: opacity .2s, transform .2s, background .2s, box-shadow .2s;
+}
+.track.vertical .add-claim:hover, .track.vertical .add-claim:focus-visible {
+  opacity: 1; background: #EFE4FC; transform: translateY(-1px); box-shadow: 0 6px 16px rgba(138, 79, 211, .18);
+}
+.track.vertical .claim-plus { width: auto; height: auto; background: none; color: inherit; }
+.track.vertical .add-claim:hover .claim-plus { transform: none; }
+.track.vertical .claim-text { writing-mode: horizontal-tb; transform: none; text-transform: none; letter-spacing: 0; font-size: 11px; font-weight: 700; }
+@media (max-width: 1300px) {
+  .track.vertical { --chip-w: 106px; }
+  .track.vertical .col-body { column-gap: 9px; }
+  .track.vertical .card { padding: 0 8px 0 11px; }
+  .track.vertical .card .code { font-size: 12.5px; }
+}
+/* The semester panels are solid, so chains are drawn over them (lines never take the pointer). */
+.track.vertical .lines { z-index: 3; }
+
+/* ---------- Course type filter (in the 4-Year Plan header) ---------- */
+/* Courses of types not picked, and any line touching them, are taken off the board. */
+.card.filtered, .edge.filtered { display: none; }
+.td-hint { margin: 2px 10px 6px; font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+.td-tick {
+  display: grid; place-items: center; width: 16px; height: 16px; flex: none; border-radius: 5px;
+  border: 1.5px solid #CFCAC2; background: #fff; transition: background .15s, border-color .15s;
+}
+.td-tick svg { width: 11px; height: 11px; fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }
+.td-item.sel .td-tick { background: var(--ut); border-color: var(--ut); }
+.td-item.sel .td-tick svg { opacity: 1; }

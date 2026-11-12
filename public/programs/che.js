@@ -52,7 +52,7 @@ FS.define({
     // Core Curriculum
     RHE306:   { code: 'RHE 306', title: 'Rhetoric and Writing', hrs: 3, cat: 'core', latest: 4 },
     SBS:      { code: 'SBS Core', title: 'Social and Behavioral Science', hrs: 3, cat: 'core', latest: 7 },
-    UGS:      { code: 'UGS 302/303', title: 'First-Year Signature Course', hrs: 3, cat: 'core', latest: 1, note: 'Can be taken after Spring 1 without delaying graduation, with approval from the Signature Course department.' },
+    UGS:      { code: 'UGS 302/303', title: 'First-Year Signature Course', hrs: 3, cat: 'core', latest: 1, note: 'Can be taken after your first spring semester without delaying graduation, with approval from the Signature Course department.' },
     GOV310L:  { code: 'GOV 310L', title: 'American Government', hrs: 3, cat: 'core', latest: 7 },
     E316:     { code: 'E 316L/M/N/P', title: 'Humanities Core', hrs: 3, cat: 'core', pre: ['RHE306'], latest: 7 },
     AMHIST:   { code: 'American History', title: 'History Core', hrs: 3, cat: 'core', latest: 7 },

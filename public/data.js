@@ -84,7 +84,7 @@ window.FS = (() => {
 
     // Core curriculum
     UGS:     { code: 'UGS 302/303', title: 'First-Year Signature Course', hrs: 3, cat: 'core', latest: 1,
-               note: 'Can be taken after Spring 1 without delaying graduation, with approval from the Signature Course department.' },
+               note: 'Can be taken after your first spring semester without delaying graduation, with approval from the Signature Course department.' },
     E316:    { code: 'E 316L/M/N/P', title: 'Humanities Core', hrs: 3, cat: 'core', pre: ['RHE306'] },
     VAPA:    { code: 'VAPA', title: 'Visual and Performing Arts Core', hrs: 3, cat: 'core' },
     AMHIST:  { code: 'American History', title: 'History Core', hrs: 3, cat: 'core' },

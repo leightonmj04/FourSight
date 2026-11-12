@@ -1,6 +1,6 @@
 # FourSight Privacy Policy
 
-Effective November 2, 2026
+Effective November 3, 2026
 
 FourSight is a degree-planning tool that runs entirely in your web browser, as a Chrome extension. This policy explains what happens to the information you put into it.
 
@@ -19,6 +19,8 @@ FourSight saves your degree plan so it is still there the next time you open it.
 - the courses, credit hours and prerequisites read from a curriculum, prerequisite flowchart or minor file you added
 - a minor you added, and its requirements
 - your course-type colors
+- your first and last semesters, which FourSight uses to date your plan
+- anything you add to your profile: your name, school email and advisor's name and email
 - the email address you last sent feedback from, so you do not have to type it again
 
 This information is stored only in your browser's local storage on your own device. It is never sent to the developer or to anyone else, and there is no FourSight account or server.
@@ -43,7 +45,7 @@ These are sent through Web3Forms (web3forms.com), an email-forwarding service, t
 
 ## What FourSight does not do
 
-- It does not collect personal information such as your name, UT EID or location. Your email address is sent only if you type it into the feedback form and press Send.
+- It does not collect your UT EID or location, and your name and advisor's details never leave your device. Your email address is sent only if it is in the feedback form when you press Send.
 - It does not use analytics, tracking, advertising or cookies.
 - It does not connect to the internet while you use it. All of its code, including the PDF reader, is included in the extension. There are two exceptions: sending feedback (described above), and clicking a link in the Program notes window (such as a UT catalog page), which opens the website in a new tab like any other link.
 - It requests no special Chrome permissions and cannot read your other tabs or browsing.

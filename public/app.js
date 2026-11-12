@@ -30,7 +30,6 @@
     close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>',
     edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4Z"/><path d="m13.5 6.5 4 4"/></svg>',
     trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
-    palette: '<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18c1.2 0 1.8-.9 1.8-1.8 0-1.3-1-1.6-1-2.7 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3Z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10" cy="7" r="1.2"/><circle cx="15" cy="7.5" r="1.2"/></svg>',
     cert: '<svg viewBox="0 0 24 24"><circle cx="12" cy="9" r="6"/><path d="m8.5 14-1.5 7 5-3 5 3-1.5-7"/></svg>',
     minor: '<svg viewBox="0 0 24 24"><path d="M4 19.5V6a2 2 0 0 1 2-2h12v13H6a2 2 0 0 0-2 2.5Z"/><path d="M4 19.5A2 2 0 0 0 6 21.5h12V17"/><path d="M9 8h5"/></svg>',
     pin: '<svg viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3.5 3.5h-11L10 10 9 4Z"/><path d="M12 13.5V20"/></svg>',
@@ -49,7 +48,7 @@
     claimed: new Set(),    // courses checked off because they were moved into the Credit claimed column
     transcript: null,      // { name, report, scheduled } of the last import
     hover: null,
-    catFocus: null,        // course type picked in the dropdown
+    catFocus: new Set(),   // course types picked in the dropdown; none picked shows every course
     selected: null,
     pinned: null,          // course whose chain stays lit while scrolling or hovering elsewhere
     minor: null,           // the minor this plan includes: { id, name, shortName, totalHours } (see minors section)
@@ -171,13 +170,72 @@
 
   // ---------------------------------------------------------------- terms
   const KIND = { fall: 'Fall', winter: 'Winter', spring: 'Spring', summer: 'Summer' };
-  const termName = (t) => (t.kind === 'credit' ? 'Credit claimed' : `${KIND[t.kind]} ${t.year}`);
+  // The student's first and last semesters ({ kind, year } in calendar years) date the plan. A term keeps its plan year
+  // (Fall of year 1, Spring of year 1, ...), and the name comes from the dates. Until a student answers, names stay "Fall 1".
+  let span = null;
+  const SEASON_RANK = { winter: 0, spring: 1, summer: 2, fall: 3 };
+  const validSemester = (t) => !!t && ['fall', 'spring', 'summer'].includes(t.kind) && Number.isInteger(t.year);
+  const semesterRank = (t) => t.year * 10 + SEASON_RANK[t.kind];
+  try {
+    const saved = JSON.parse(localStorage.getItem('dp.span') || 'null');
+    if (saved && validSemester(saved.start) && validSemester(saved.end) && semesterRank(saved.end) > semesterRank(saved.start)) span = saved;
+  } catch (_) { /* ignore */ }
+  // Plan year 1 is the academic year of the first semester. A summer start sits just before it, in plan year 0.
+  const calendarYear = (t) => (span.start.kind === 'spring' ? span.start.year - 1 : span.start.year) + t.year - (t.kind === 'fall' ? 1 : 0);
+  const termName = (t) => (t.kind === 'credit' ? 'Credit claimed' : `${KIND[t.kind]} ${span ? calendarYear(t) : t.year}`);
+  const termRank = (t) => semesterRank({ kind: t.kind, year: calendarYear(t) });
+  const pastEnd = (t) => !!span && t.kind !== 'credit' && termRank(t) > semesterRank(span.end);
+  // When a term begins: spring runs January to May, summer May to August, fall August to December. May and August are
+  // shared, so the switch is the middle of the month. Winter and spring quarters only come from uploaded plans.
+  const termStarts = (t) => new Date(calendarYear(t), { winter: 0, spring: S.terms.some((x) => x.kind === 'winter') ? 3 : 0, summer: 4, fall: 7 }[t.kind], t.kind === 'summer' || t.kind === 'fall' ? 16 : 1);
   // Winter terms come from quarter-system curricula (fall, winter, spring); they count like falls and springs.
   const isRegular = (t) => t.kind === 'fall' || t.kind === 'spring' || t.kind === 'winter';
   // The regular term after `last`: fall -> spring -> next fall, or fall -> winter -> spring on quarters.
   const regularAfter = (last, quarters) => (last.kind === 'fall' ? { kind: quarters ? 'winter' : 'spring', year: last.year }
     : last.kind === 'winter' ? { kind: 'spring', year: last.year } : { kind: 'fall', year: last.year + 1 });
   const nameAt = (i) => (S.terms[i] ? termName(S.terms[i]) : '');
+  // Lays a plan out on the student's dates. Courses keep their order, semester by semester from the first one; only the
+  // semesters' names change, so a spring start runs Spring, Fall, Spring. A summer stays between a spring and a fall, so
+  // on a spring start it waits for the next spring. Dates longer than the plan add empty semesters. Dates shorter than
+  // the plan never drop or move a course: its semesters stay, marked as after the last one, and empty ones go.
+  function onDates(terms, plan) {
+    if (!span) return { terms, plan };
+    const quarters = terms.some((t) => t.kind === 'winter');
+    const endRank = semesterRank(span.end);
+    const out = [], ids = [];
+    const push = (t, list) => { out.push(t); ids.push(list.slice()); };
+    const all = terms.map((t, i) => ({ t, list: plan[i] || [] }));
+    all.filter((x) => x.t.kind === 'credit').forEach((x) => push({ kind: 'credit', year: 0 }, x.list));
+    const rest = all.filter((x) => x.t.kind !== 'credit');
+    let at = 0;
+    const lead = [];
+    while (rest[at] && rest[at].t.kind === 'summer') lead.push(...rest[at++].list);
+    if (span.start.kind === 'summer' || lead.length) push({ kind: 'summer', year: 0 }, lead);
+    let next = { kind: span.start.kind === 'spring' ? 'spring' : 'fall', year: 1 }, last = null, waiting = [];
+    const placeRegular = (list) => {
+      last = next;
+      push(last, list);
+      next = regularAfter(last, quarters);
+      if (last.kind === 'spring' && waiting.length) { push({ kind: 'summer', year: last.year }, waiting); waiting = []; }
+    };
+    for (; at < rest.length; at++) {
+      const { t, list } = rest[at];
+      if (t.kind !== 'summer') placeRegular(list);
+      else if (last && last.kind === 'spring') push({ kind: 'summer', year: last.year }, list);
+      else waiting.push(...list);
+    }
+    while (waiting.length) placeRegular([]);
+    while (termRank(next) <= endRank) placeRegular([]);
+    if (span.end.kind === 'summer' && !out.some((t) => t.kind === 'summer' && termRank(t) === endRank)) {
+      const spring = out.findIndex((t) => t.kind === 'spring' && calendarYear(t) === span.end.year);
+      const t = { kind: 'summer', year: spring >= 0 ? out[spring].year : last.year };
+      out.splice(spring >= 0 ? spring + 1 : out.length, 0, t);
+      ids.splice(spring >= 0 ? spring + 1 : ids.length, 0, []);
+    }
+    while (out.length > 1 && !ids[ids.length - 1].length && pastEnd(out[out.length - 1])) { out.pop(); ids.pop(); }
+    return { terms: out, plan: ids };
+  }
+  const suggestedLayout = () => onDates(defaultTerms(), clone(P.plan));
   // A program's suggested terms: eight falls and springs unless it plans a summer (Geosystems).
   function defaultTerms() {
     if (P.terms) return P.terms.map((t) => ({ ...t }));
@@ -187,8 +245,10 @@
   }
   // "latest" in the data counts only the eight standard fall/spring terms (0 = Fall 1).
   const latestName = (n) => {
-    const regs = defaultTerms().filter(isRegular);
-    return regs[n] ? termName(regs[n]) : `${n % 2 ? 'Spring' : 'Fall'} ${Math.floor(n / 2) + 1}`;
+    const regs = suggestedLayout().terms.filter(isRegular);
+    let t = regs[Math.min(n, regs.length - 1)];
+    for (let k = regs.length - 1; k < n; k++) t = regularAfter(t, false);
+    return termName(t);
   };
   // A course is late once it sits in or after the regular term that follows its latest one.
   // A summer straight after the latest term is still on time.
@@ -201,7 +261,7 @@
     }
     return Infinity;
   }
-  const isExtra = (t) => isRegular(t) && t.year > 4;
+  const isExtra = (t) => isRegular(t) && (span ? pastEnd(t) : t.year > 4);
 
   // One saved plan per program. ChE plans saved before programs existed used 'dp.plan.me'.
   const planKey = () => `dp.plan.${P.id}`;
@@ -216,8 +276,9 @@
       applyCourses(saved ? { custom: saved.custom || {}, edits: saved.edits || {}, removed: saved.removed || [] } : {});
       if (validState(saved)) {
         const upgraded = upgradeUntouchedPlan(saved);
+        const laid = onDates(saved.terms, upgraded || saved.plan);
         return {
-          terms: saved.terms, plan: upgraded || saved.plan, done: new Set(saved.done || []), upgraded: !!upgraded,
+          terms: laid.terms, plan: laid.plan, done: new Set(saved.done || []), upgraded: !!upgraded,
           credit: new Set(saved.credit || []), taken: saved.taken || {}, prior: saved.prior || [],
           fromTranscript: new Set(saved.fromTranscript || []), transcript: saved.transcript || null,
           claimed: new Set(saved.claimed || []),
@@ -226,7 +287,7 @@
     } catch (_) { /* storage unavailable */ }
     applyCourses({});
     // A plan built from a file that lists credit already claimed starts with those courses checked off.
-    const terms = defaultTerms(), plan = clone(P.plan), ci = terms.findIndex((x) => x.kind === 'credit');
+    const { terms, plan } = suggestedLayout(), ci = terms.findIndex((x) => x.kind === 'credit');
     const claimed = new Set(ci >= 0 ? plan[ci] : []);
     return { terms, plan, done: new Set(claimed), claimed, ...emptyTranscript() };
   }
@@ -367,6 +428,11 @@
   const cardEl = {};       // id -> element
   const colEl = [];        // column elements
   const pathEl = {};       // edge id -> path
+  // Two views of the same board: semester columns side by side, or an overview with the semesters as rows from first to
+  // last and each course as just its code. They share the cards, the plan and the lines, so a change in one is in both.
+  let view = 'columns';
+  try { if (localStorage.getItem('dp.view') === 'overview') view = 'overview'; } catch (_) { /* ignore */ }
+  const vertical = () => view === 'overview';
 
   // ---------------------------------------------------------------- load
   function loadPlan() {
@@ -387,21 +453,27 @@
   }
 
   // ---------------------------------------------------------------- build + layout
+  // Course types to show, picked in the 4-Year Plan header. Courses of other types (and their lines) are hidden.
+  const shownCat = (id) => !S.catFocus.size || S.catFocus.has(C[id].cat);
   function buildLegend() {
+    // Types this program no longer has (a minor was removed, say) drop out of the selection.
+    for (const k of [...S.catFocus]) if (!CATS[k]) S.catFocus.delete(k);
     const count = (k) => Object.values(C).filter((c) => c.cat === k).length;
-    const items = [`<button class="td-item" data-cat="" role="option"><span class="td-sw all"></span>All course types<b>${Object.keys(C).length}</b></button>`]
+    const tick = '<span class="td-tick"><svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></span>';
+    const items = [`<button class="td-item" data-cat="" role="option">${tick}<span class="td-sw all"></span>All course types<b>${Object.keys(C).length}</b></button>`]
       .concat(Object.entries(CATS).map(([k, v]) =>
-        `<button class="td-item" data-cat="${k}" role="option"><span class="td-sw" style="background:var(--${k})"></span>${v.label}<b>${count(k)}</b></button>`));
-    $('legend').innerHTML =
+        `<button class="td-item" data-cat="${k}" role="option">${tick}<span class="td-sw" style="background:var(--${k})"></span>${v.label}<b>${count(k)}</b></button>`));
+    $('typeFilter').innerHTML =
       `<div class="typedrop" id="typedrop">` +
         `<button class="td-btn" id="tdBtn" aria-haspopup="listbox" aria-expanded="false">` +
           `<span class="td-dots">${Object.keys(CATS).map((k) => `<i style="background:var(--${k})"></i>`).join('')}</span>` +
           `<span class="td-text"><small>Course type</small><span id="tdLabel">All course types</span></span>` +
           `<svg class="td-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>` +
         `</button>` +
-        `<div class="td-menu" id="tdMenu" role="listbox">${items.join('')}` +
-          `<button class="td-colors" id="tdColors">${ICON.palette}Customize colors</button></div>` +
-      `</div>` +
+        `<div class="td-menu" id="tdMenu" role="listbox" aria-multiselectable="true" aria-label="Course types to show">` +
+          `<p class="td-hint">Pick one or more to show only those courses.</p>${items.join('')}</div>` +
+      `</div>`;
+    $('legend').innerHTML =
       `<div class="line-keys">` +
         `<span><svg viewBox="0 0 26 10"><path d="M1 5h22" stroke="var(--edge)" stroke-width="2"/></svg>Prerequisite</span>` +
         `<span><svg viewBox="0 0 26 10"><path d="M1 5h22" stroke="var(--edge)" stroke-width="2" stroke-dasharray="4 3"/></svg>Co-requisite</span>` +
@@ -412,21 +484,31 @@
     const drop = $('typedrop'), btn = $('tdBtn');
     const setOpen = (open) => { drop.classList.toggle('open', open); btn.setAttribute('aria-expanded', open); };
     btn.addEventListener('click', (ev) => { ev.stopPropagation(); setOpen(!drop.classList.contains('open')); });
-    $('tdColors').addEventListener('click', () => { setOpen(false); showColors(); });
-    drop.querySelectorAll('.td-item').forEach((b) => {
-      b.addEventListener('mouseenter', () => highlightCategory(b.dataset.cat || null));
-      b.addEventListener('mouseleave', () => highlightCategory(S.catFocus));
-      b.addEventListener('click', () => {
-        S.catFocus = b.dataset.cat || null;
-        $('tdLabel').textContent = S.catFocus ? CATS[S.catFocus].label : 'All course types';
-        btn.style.setProperty('--accent', S.catFocus ? `var(--${S.catFocus})` : 'transparent');
-        btn.classList.toggle('active', !!S.catFocus);
-        drop.querySelectorAll('.td-item').forEach((x) => x.classList.toggle('sel', x === b));
-        setOpen(false);
-        paint();
-      });
+    // Several types can be picked; the menu stays open until a click outside it or Escape.
+    drop.querySelectorAll('.td-item').forEach((b) => b.addEventListener('click', () => {
+      const k = b.dataset.cat;
+      if (!k) S.catFocus.clear();
+      else if (S.catFocus.has(k)) S.catFocus.delete(k);
+      else S.catFocus.add(k);
+      if (S.catFocus.size === Object.keys(CATS).length) S.catFocus.clear(); // every type picked is the same as all
+      showTypeFilter();
+      paint();
+    }));
+    showTypeFilter();
+  }
+  // The dropdown's label, accent and ticks for the types picked.
+  function showTypeFilter() {
+    const btn = $('tdBtn');
+    if (!btn) return;
+    const picked = [...S.catFocus];
+    $('tdLabel').textContent = !picked.length ? 'All course types' : picked.length === 1 ? CATS[picked[0]].label : `${picked.length} course types`;
+    btn.style.setProperty('--accent', !picked.length ? 'transparent' : picked.length === 1 ? `var(--${picked[0]})` : 'var(--ut)');
+    btn.classList.toggle('active', picked.length > 0);
+    document.querySelectorAll('#tdMenu .td-item').forEach((x) => {
+      const on = x.dataset.cat ? S.catFocus.has(x.dataset.cat) : !picked.length;
+      x.classList.toggle('sel', on);
+      x.setAttribute('aria-selected', on);
     });
-    drop.querySelector('.td-item').classList.add('sel');
   }
 
   // Course counts in the type dropdown; added courses change them.
@@ -448,14 +530,15 @@
   function buildSemnav() {
     const tr = $('semnav').querySelector('.semnav-track');
     tr.querySelectorAll('button').forEach((b) => b.remove());
-    tr.style.gridTemplateColumns = S.terms.map((t) => (isRegular(t) ? '1fr' : '.75fr')).join(' ');
+    // Every semester gets the same width, as on the board, so the window over the visible semesters is always one size.
+    tr.style.gridTemplateColumns = `repeat(${S.terms.length}, minmax(0, 1fr))`;
     S.terms.forEach((t, i) => {
       const b = document.createElement('button');
       if (t.kind === 'summer') b.classList.add('summer');
       if (t.kind === 'credit') b.classList.add('credit');
       b.innerHTML = t.kind === 'credit'
         ? `Credit claimed<small>Before Year 1</small><span class="dot"></span>`
-        : `${termName(t)}<small>Year ${t.year}</small><span class="dot"></span>`;
+        : `${termName(t)}<small>${t.year ? `Year ${t.year}` : 'Before Year 1'}</small><span class="dot"></span>`;
       b.addEventListener('click', () => scroller.toColumn(i));
       tr.appendChild(b);
     });
@@ -469,15 +552,18 @@
     anims.clear();
 
     track.classList.toggle('can-claim', !!S.terms[0] && S.terms[0].kind !== 'credit'); // room for the Credit claimed tab
+    applyView();
     S.terms.forEach((t, i) => {
       const col = document.createElement('section');
-      col.className = `col ${t.kind}` + (isExtra(t) ? ' extra' : '') + (newTerm === t ? ' col-new' : '');
+      col.className = `col ${t.kind}` + (isExtra(t) ? ' extra' : '') + (newTerm === t ? ' col-new' : '') +
+        (i === 0 || S.terms[i - 1].year !== t.year ? ' year-first' : '');
       col.dataset.sem = i;
       const removable = t.kind === 'summer' || t.kind === 'credit' || (isExtra(t) && i === S.terms.length - 1);
       col.innerHTML =
         `<div class="col-head"><span class="col-title">${t.kind === 'summer' ? ICON.sun : t.kind === 'credit' ? ICON.award : ''}${termName(t)}</span>` +
         `<span class="col-hours"></span><button class="term-check" aria-pressed="false">${ICON.tick}</button>` +
         `${removable ? `<button class="term-remove" title="Remove term" aria-label="Remove ${termName(t)}">${ICON.close}</button>` : ''}</div>` +
+        (pastEnd(t) ? `<div class="col-after">After your last semester</div>` : '') +
         `<div class="col-body"></div>` +
         S.prior.filter((pc) => pc.index === i).map((pc) =>
           `<div class="prior-chip" title="Counts as a prerequisite, not toward the ${P.hours} hours">` +
@@ -485,7 +571,7 @@
       if (t.kind === 'spring' && (!S.terms[i + 1] || S.terms[i + 1].kind !== 'summer')) {
         const add = document.createElement('button');
         add.className = 'add-summer';
-        add.innerHTML = `${ICON.plus}Summer ${t.year}`;
+        add.innerHTML = `${ICON.plus}${termName({ kind: 'summer', year: t.year })}`;
         add.title = `Add a summer term after ${termName(t)}`;
         add.addEventListener('click', () => addSummer(i));
         col.appendChild(add);
@@ -493,6 +579,7 @@
       const addC = document.createElement('button');
       addC.className = 'add-course';
       addC.innerHTML = `${ICON.plus}Add course`;
+      addC.title = `Add a course to ${termName(t)}`;
       addC.addEventListener('click', () => showCourseForm(i));
       col.querySelector('.col-body').appendChild(addC);
       const rm = col.querySelector('.term-remove');
@@ -501,7 +588,8 @@
       columnsEl.appendChild(col);
       colEl.push(col);
     });
-    // Left of the first semester, a tab centered on the flowchart opens a Credit claimed column.
+    // Left of the first semester, a tab centered on the Year 1 block opens a Credit claimed column. Its slot takes the
+    // block's height where the bands are drawn.
     if (S.terms[0] && S.terms[0].kind !== 'credit') {
       const claim = document.createElement('button');
       claim.className = 'add-claim';
@@ -509,23 +597,28 @@
       claim.title = 'Add a column for courses you already have credit for';
       claim.setAttribute('aria-label', 'Add a Credit claimed column for courses you already have credit for');
       claim.addEventListener('click', addCreditColumn);
-      columnsEl.appendChild(claim);
+      const slot = document.createElement('div');
+      // A plan that starts with a summer already has a Before Year 1 block, so the strip doesn't name it again.
+      slot.className = 'claim-slot' + (S.terms[0].year === 0 ? ' no-label' : '');
+      slot.id = 'claimSlot';
+      slot.appendChild(claim);
+      columnsEl.appendChild(slot);
     }
     // Ghost column at the end for adding another fall or spring.
     const next = nextRegular();
     const addCol = document.createElement('div');
     addCol.className = 'col add-col';
-    addCol.innerHTML = `<button class="add-term">${ICON.plus}<span>Add ${termName(next)}</span><small>Extra term beyond year 4</small></button>`;
+    addCol.innerHTML = `<button class="add-term">${ICON.plus}<span>Add ${termName(next)}</span><small>${span ? 'Extra term' : 'Extra term beyond year 4'}</small></button>`;
     addCol.querySelector('button').addEventListener('click', addRegular);
     columnsEl.appendChild(addCol);
 
     const years = [...new Set(S.terms.map((t) => t.year))];
     for (const y of years) {
       const band = document.createElement('div');
-      band.className = 'band' + (y > 4 ? ' extra' : '');
+      band.className = 'band' + (S.terms.some((t) => t.year === y && isExtra(t)) ? ' extra' : '');
       band.dataset.year = y;
       band.textContent = y === 0 ? 'Before Year 1' : `Year ${y}`;
-      if (y === 0) band.classList.add('credit');
+      if (y === 0 && creditIndex() >= 0) band.classList.add('credit');
       bandsEl.appendChild(band);
     }
     colDrift.length = S.terms.length; colDrift.fill(0);
@@ -540,9 +633,9 @@
       el.dataset.id = id;
       el.dataset.cat = c.cat;
       el.innerHTML =
-        `<div class="row"><span class="code">${esc(c.code)}${c.optional ? '<span class="opt">Optional</span>' : ''}</span>` +
+        `<div class="row"><span class="code" title="${esc(c.code)}">${esc(c.code)}${c.optional ? '<span class="opt">Optional</span>' : ''}</span>` +
         `<span class="right"><button class="pin" aria-label="Pin ${c.code} chain">${ICON.pin}</button><span class="hrs">${c.hrs} hr</span><button class="check" aria-label="Mark ${c.code} complete">${ICON.tick}</button></span></div>` +
-        `<div class="title">${esc(S.taken[id] ? `Taken as ${S.taken[id]}` : c.title)}</div><span class="flag">${ICON.alert}</span>`;
+        `<div class="title" title="${esc(S.taken[id] ? `Taken as ${S.taken[id]}` : c.title)}">${esc(S.taken[id] ? `Taken as ${S.taken[id]}` : c.title)}</div><span class="flag">${ICON.alert}</span>`;
       if (intro) {
         el.classList.add('intro');
         el.style.animationDelay = `${si * 70 + k * 35}ms`;
@@ -606,11 +699,11 @@
     // The whole chain stays highlighted; arrows show only one step each way from the course.
     const lit = focusId ? chainOf(focusId) : null;
 
-    const cat = !lit && S.catFocus;
     for (const [id, el] of Object.entries(cardEl)) {
+      el.classList.toggle('filtered', !shownCat(id));
       el.classList.toggle('bad', badCourses.has(id));
       el.classList.toggle('late', late.has(id) || offTerm.has(id) || missing.has(id));
-      el.classList.toggle('dim', lit ? !lit.cards.has(id) : !!cat && C[id].cat !== cat);
+      el.classList.toggle('dim', !!lit && !lit.cards.has(id));
       el.classList.toggle('lit', !!lit && lit.cards.has(id));
       el.classList.toggle('selected', S.selected === id);
       el.classList.toggle('pinned', S.pinned === id);
@@ -624,14 +717,15 @@
       const isLit = !!focusId && (e.from === focusId || e.to === focusId);
       p.classList.toggle('bad', bad);
       p.classList.toggle('lit', isLit && !bad);
-      p.classList.toggle('dim', lit ? !isLit : !!cat && !(C[e.from].cat === cat && C[e.to].cat === cat));
+      p.classList.toggle('dim', !!lit && !isLit);
+      p.classList.toggle('filtered', !shownCat(e.from) || !shownCat(e.to));
       p.setAttribute('marker-end', `url(#${bad ? 'arrowBad' : isLit ? 'arrowLit' : 'arrow'})`);
       // Broken edges move to a layer above the cards so they are never hidden.
       const layer = bad ? edgesTopG : edgesG;
       if (p.parentNode !== layer) layer.appendChild(p);
     }
     // Which lines show changed, so their endpoints need spreading again.
-    const shownKey = `${focusId}|${[...broken].join()}`;
+    const shownKey = `${focusId}|${[...broken].join()}|${[...S.catFocus].join()}`;
     if (shownKey !== lastShownKey) { lastShownKey = shownKey; drawLines(); }
 
     S.plan.forEach((sem, i) => {
@@ -666,6 +760,9 @@
     } else if (offTerm.size) {
       st.className = 'status bad';
       st.innerHTML = `${ICON.clock}${offTerm.size} course${offTerm.size === 1 ? '' : 's'} in a term ${offTerm.size === 1 ? 'it isn\'t' : 'they aren\'t'} offered`;
+    } else if (afterLast().length) {
+      st.className = 'status bad';
+      st.innerHTML = `${ICON.clock}${afterLast().length} course${afterLast().length === 1 ? '' : 's'} after your last semester`;
     } else if (missing.size) {
       st.className = 'status bad';
       st.innerHTML = `${ICON.alert}${missing.size} course${missing.size === 1 ? '' : 's'} missing a prerequisite`;
@@ -677,6 +774,8 @@
     renderAudit();
     renderMinorStrip();
   }
+
+  const afterLast = () => S.plan.flatMap((sem, i) => (pastEnd(S.terms[i]) ? sem.filter((id) => !C[id].optional && !S.done.has(id)) : []));
 
   function togglePin(id) {
     S.pinned = S.pinned === id ? null : id;
@@ -704,13 +803,6 @@
     return { cards, edges };
   }
 
-  // Preview a course type while hovering the dropdown; leaving restores the picked one.
-  function highlightCategory(cat) {
-    const keep = S.catFocus;
-    S.catFocus = cat;
-    paint();
-    S.catFocus = keep;
-  }
 
   // ---------------------------------------------------------------- geometry
   const anims = new Map();   // id -> { fx, fy, t0, dur, x, y }  current FLIP offset
@@ -734,7 +826,9 @@
   }
 
   function drawLines() {
-    const W = track.scrollWidth, H = track.scrollHeight;
+    // In the overview the board is as wide as the window and as tall as its rows; measuring its overflow there would
+    // count these layers themselves and keep the width the columns had.
+    const W = vertical() ? track.clientWidth : track.scrollWidth, H = vertical() ? track.clientHeight : track.scrollHeight;
     svg.setAttribute('width', W); svg.setAttribute('height', H);
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     svgTop.setAttribute('width', W); svgTop.setAttribute('height', H);
@@ -754,6 +848,7 @@
       (outPorts[e.from] ||= []).push(e);
       (inPorts[e.to] ||= []).push(e);
     }
+    if (vertical()) { drawLinesVertical(rects, sem, outPorts, inPorts); return; }
     const portY = (list, e, id, otherKey) => {
       const r = rects[id];
       if (!list || !list.includes(e)) return r.y + r.h / 2;
@@ -803,6 +898,64 @@
       band.style.transform = `translate(${left}px, ${p0.y - 6}px)`;
       band.style.width = `${right - left}px`;
       band.style.height = `${Math.max(...idx.map((i) => colEl[i].offsetHeight)) + 20}px`;
+      if (y === 1 && $('claimSlot')) $('claimSlot').style.height = band.style.height;
+    }
+  }
+
+  // Overview: lines leave the bottom of a course and enter the top of the one it leads to, in a later row.
+  function drawLinesVertical(rects, sem, outPorts, inPorts) {
+    const portX = (list, e, id, otherKey) => {
+      const r = rects[id];
+      if (!list || !list.includes(e)) return r.x + r.w / 2;
+      const sorted = list.slice().sort((a, b) => rects[a[otherKey]].x - rects[b[otherKey]].x);
+      const n = sorted.length, i = sorted.indexOf(e);
+      const step = n > 1 ? Math.min(12, (r.w * 0.6) / (n - 1)) : 0;
+      return r.x + r.w / 2 + (i - (n - 1) / 2) * step;
+    };
+    const down = (sx, sy, ex, ey) => {
+      const k = Math.max(18, (ey - sy) * 0.45);
+      return `M${sx},${sy} C${sx},${sy + k} ${ex},${ey - k} ${ex},${ey}`;
+    };
+    for (const e of ALL_EDGES) {
+      const a = rects[e.from], b = rects[e.to];
+      const ax = portX(outPorts[e.from], e, e.from, 'to');
+      const bx = portX(inPorts[e.to], e, e.to, 'from');
+      let d;
+      if (sem[e.from] < sem[e.to]) d = down(ax, a.y + a.h, bx, b.y - 2);
+      else if (sem[e.from] === sem[e.to]) {
+        // Same semester: arc over the row and back down into the course.
+        // Low enough to stay in the gap above the row instead of crossing the row before it.
+        const bulge = 14 + Math.min(8, Math.abs(bx - ax) * 0.03);
+        d = `M${ax},${a.y} C${ax},${a.y - bulge} ${bx},${b.y - bulge} ${bx},${b.y - 2}`;
+      } else if (e.free) d = down(bx, b.y + b.h, ax, a.y - 2);
+      else {
+        // Prerequisite placed after the course: run back up, from its top to the bottom of the course.
+        const k = Math.max(30, (a.y - b.y - b.h) * 0.35);
+        d = `M${ax},${a.y} C${ax},${a.y - k} ${bx},${b.y + b.h + k} ${bx},${b.y + b.h + 2}`;
+      }
+      pathEl[e.id].setAttribute('d', d);
+    }
+    // Year bands wrap their rows, with the year's name in a strip above the first one.
+    for (const band of bandsEl.children) {
+      const y = +band.dataset.year;
+      const idx = S.terms.map((t, i) => (t.year === y ? i : -1)).filter((i) => i >= 0);
+      const p0 = localPos(colEl[idx[0]]), last = colEl[idx[idx.length - 1]];
+      // A 36px strip for the year's name above the first row, 10px of block below the last, 16px on each side.
+      const top = p0.y - 36, bottom = localPos(last).y + last.offsetHeight + 10;
+      const width = Math.max(...idx.map((i) => colEl[i].offsetWidth)) + 32;
+      band.style.transform = `translate(${p0.x - 16}px, ${top}px)`;
+      band.style.width = `${width}px`;
+      band.style.height = `${bottom - top}px`;
+      // The year's add-a-summer pill goes in its label strip, 14px after the year's name.
+      const range = document.createRange();
+      range.selectNodeContents(band);
+      const labelW = range.getBoundingClientRect().width;
+      for (const i of idx) {
+        const pill = colEl[i].querySelector(':scope > .add-summer');
+        if (!pill) continue;
+        pill.style.top = `${top + 18 - localPos(colEl[i]).y}px`;
+        pill.style.left = `${Math.round(labelW) + 14}px`;
+      }
     }
   }
 
@@ -958,23 +1111,105 @@
   viewport.addEventListener('scroll', () => loop.kick(), { passive: true });
   window.addEventListener('resize', () => { drawLines(); updateSemnav(); });
 
-  function updateSemnav() {
-    const btns = $('semnav').querySelectorAll('button');
-    if (!btns.length || !colEl.length) return;
-    const left = viewport.scrollLeft, right = left + viewport.clientWidth;
-    let first = -1, last = -1;
-    colEl.forEach((col, i) => {
-      const x = localPos(col).x, w = col.offsetWidth;
-      const visible = Math.min(right, x + w) - Math.max(left, x);
-      if (visible > w * 0.5) { if (first < 0) first = i; last = i; }
-    });
-    if (first < 0) return;
-    const a = btns[first], b = btns[last];
-    const win = $('semnavWindow');
+  let navDrag = null, navSnap = null;
+  // Where the board scrolls to put a semester at its left edge, the same spot a click on the bar goes to.
+  const columnTarget = (i) => Math.max(0, Math.min(viewport.scrollWidth - viewport.clientWidth, localPos(colEl[i]).x - 40));
+  // How many semesters the window covers: the ones more than half on screen when a semester sits at the left edge.
+  // It depends only on the window and column sizes, so the window stays the same size as the board scrolls.
+  function navSpan() {
+    const n = colEl.length, w = colEl[0].offsetWidth;
+    const step = n > 1 ? localPos(colEl[1]).x - localPos(colEl[0]).x : w;
+    return Math.max(1, Math.min(n, Math.floor((viewport.clientWidth - 40 - w / 2) / step) + 1));
+  }
+  function placeWindow(first, k, animate) {
+    const btns = $('semnav').querySelectorAll('button'), win = $('semnavWindow');
+    const a = btns[first], b = btns[first + k - 1];
+    win.style.transition = animate ? 'transform .35s cubic-bezier(.2,.9,.2,1), width .35s cubic-bezier(.2,.9,.2,1)' : 'none';
     win.style.transform = `translateX(${a.offsetLeft - 4}px)`;
     win.style.width = `${b.offsetLeft + b.offsetWidth - a.offsetLeft}px`;
-    win.style.transition = 'transform .35s cubic-bezier(.2,.9,.2,1), width .35s cubic-bezier(.2,.9,.2,1)';
   }
+  function updateSemnav() {
+    const btns = $('semnav').querySelectorAll('button');
+    if (!btns.length || !colEl.length || (navDrag && navDrag.moved)) return;
+    const k = navSpan();
+    // After a drag the window holds the semester it was let go on while the board glides there.
+    if (navSnap !== null) {
+      if (navSnap + k <= colEl.length && Math.abs(viewport.scrollLeft - scroller.target) > 1) return;
+      navSnap = null;
+    }
+    const left = viewport.scrollLeft, right = left + viewport.clientWidth;
+    let first = colEl.findIndex((col) => {
+      const x = localPos(col).x, w = col.offsetWidth;
+      return Math.min(right, x + w) - Math.max(left, x) > w * 0.5;
+    });
+    if (first < 0) return;
+    first = Math.min(first, colEl.length - k);
+    placeWindow(first, k, true);
+  }
+
+  // The highlighted window can be dragged along the semester bar like a scrollbar. It keeps its size, the board follows
+  // it semester by semester, and when it is let go it settles on the semester its left end is closest to. A press that
+  // doesn't move is still a click on that semester.
+  (() => {
+    const track = $('semnav').querySelector('.semnav-track'), win = $('semnavWindow');
+    let swallowClick = false;
+    // The grab cursor shows anywhere over the window, including the gaps between its semesters.
+    track.addEventListener('pointermove', (ev) => {
+      const w = win.getBoundingClientRect();
+      track.classList.toggle('over-window', viewport.scrollWidth > viewport.clientWidth && ev.clientX >= w.left && ev.clientX <= w.right);
+    });
+    track.addEventListener('pointerleave', () => track.classList.remove('over-window'));
+    // The two ends of the bar are the two ends of the board; in between, a semester at the board's left edge.
+    const slotTarget = (i, last) => (i <= 0 ? 0 : i >= last ? viewport.scrollWidth - viewport.clientWidth : columnTarget(i));
+    // Distance between neighbouring semesters on the bar.
+    const slot = () => {
+      const btns = track.querySelectorAll('button');
+      return btns.length > 1 ? btns[1].offsetLeft - btns[0].offsetLeft : 1;
+    };
+    track.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0) return;
+      const w = win.getBoundingClientRect();
+      if (ev.clientX < w.left || ev.clientX > w.right) return;
+      const k = navSpan(), last = colEl.length - k;
+      if (last <= 0 || viewport.scrollWidth <= viewport.clientWidth) return;
+      navDrag = { id: ev.pointerId, x: ev.clientX, left: w.left - track.getBoundingClientRect().left - 4, k, last, moved: false };
+    });
+    window.addEventListener('pointermove', (ev) => {
+      if (!navDrag || ev.pointerId !== navDrag.id) return;
+      const dx = ev.clientX - navDrag.x;
+      if (!navDrag.moved) {
+        if (Math.abs(dx) < SLOP) return;
+        navDrag.moved = true;
+        navSnap = null;
+        track.setPointerCapture(ev.pointerId);
+        $('semnav').classList.add('dragging');
+        placeWindow(Math.round(navDrag.left / slot()), navDrag.k, false); // fix its size for the whole drag
+      }
+      const unit = slot();
+      const left = Math.max(0, Math.min(navDrag.last * unit, navDrag.left + dx));
+      win.style.transform = `translateX(${left}px)`;
+      // Between two semesters on the bar, the board is the same fraction of the way between them.
+      const pos = left / unit, i = Math.min(navDrag.last - 1, Math.floor(pos)), at = (j) => slotTarget(j, navDrag.last);
+      scroller.target = at(i) + (pos - i) * (at(i + 1) - at(i));
+      navDrag.pos = pos;
+    });
+    const end = (ev) => {
+      if (!navDrag || ev.pointerId !== navDrag.id) return;
+      const { moved, pos = 0, k, last } = navDrag;
+      navDrag = null;
+      if (!moved) return;
+      $('semnav').classList.remove('dragging');
+      swallowClick = true;
+      setTimeout(() => { swallowClick = false; }, 0);
+      const i = Math.max(0, Math.min(last, Math.round(pos)));
+      navSnap = i;
+      placeWindow(i, k, true);
+      scroller.target = slotTarget(i, last);
+    };
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    track.addEventListener('click', (ev) => { if (swallowClick) { ev.stopPropagation(); ev.preventDefault(); } }, true);
+  })();
 
   // ---------------------------------------------------------------- drag and drop
   const SLOP = 5;
@@ -1025,19 +1260,23 @@
     d.tilt = (d.tilt || 0) + (tilt - (d.tilt || 0)) * 0.3;
     d.ghost.style.transform = `translate(${d.gx}px, ${d.gy}px) rotate(${d.tilt.toFixed(2)}deg) scale(1.04)`;
 
-    // Which semester and slot is under the pointer?
-    const centerX = p.x;
+    // Which semester and slot is under the pointer? Columns go by x; overview rows go by y.
+    const across = vertical() ? p.y : p.x;
     let best = 0, bestDist = Infinity;
     colEl.forEach((col, i) => {
-      const x = localPos(col).x + col.offsetWidth / 2;
-      const dist = Math.abs(x - centerX);
+      const at = vertical() ? localPos(col).y + col.offsetHeight / 2 : localPos(col).x + col.offsetWidth / 2;
+      const dist = Math.abs(at - across);
       if (dist < bestDist) { bestDist = dist; best = i; }
     });
     const others = S.plan[best].filter((id) => id !== d.id);
-    let index = others.length;
-    for (let k = 0; k < others.length; k++) {
-      const r = rectOf(others[k]);
-      if (p.y < r.y + r.h / 2) { index = k; break; }
+    // Only courses on show count: the drop lands just before the shown course it is over, or just after the last
+    // shown one, and courses hidden by the type filter keep their places around it.
+    const visible = others.filter(shownCat);
+    let index = visible.length ? others.indexOf(visible[visible.length - 1]) + 1 : others.length;
+    for (const id of visible) {
+      const r = rectOf(id);
+      const before = vertical() ? p.y < r.y || (p.y < r.y + r.h && p.x < r.x + r.w / 2) : p.y < r.y + r.h / 2;
+      if (before) { index = others.indexOf(id); break; }
     }
     const curSem = semOf(S.plan, d.id);
     const curIndex = S.plan[curSem].filter((id) => id !== d.id).length >= 0 ? S.plan[curSem].indexOf(d.id) : -1;
@@ -1062,6 +1301,12 @@
     const vr = viewport.getBoundingClientRect();
     const edge = 90;
     let push = 0;
+    if (vertical()) {
+      if (d.cy < vr.top + 60) push = -(1 - Math.max(0, d.cy - vr.top) / 60);
+      else if (d.cy > vr.bottom - 60) push = 1 - Math.max(0, vr.bottom - d.cy) / 60;
+      if (push) { viewport.scrollTop += push * 14; moveGhost(); }
+      return;
+    }
     if (d.cx < vr.left + edge) push = -(1 - (d.cx - vr.left) / edge);
     else if (d.cx > vr.right - edge) push = 1 - (vr.right - d.cx) / edge;
     if (push) {
@@ -1224,10 +1469,12 @@
   }
 
   function focusCourse(id, open) {
+    // A course hidden by the type filter comes back into view with its type.
+    if (!shownCat(id)) { S.catFocus.add(C[id].cat); showTypeFilter(); paint(); }
     const sem = semOf(S.plan, id);
     const p = localPos(colEl[sem]);
-    const want = p.x + colEl[sem].offsetWidth / 2 - viewport.clientWidth / 2;
-    scroller.target = want;
+    if (vertical()) viewport.scrollTo({ top: Math.max(0, p.y - viewport.clientHeight / 2 + colEl[sem].offsetHeight / 2), behavior: 'smooth' });
+    else scroller.target = p.x + colEl[sem].offsetWidth / 2 - viewport.clientWidth / 2;
     const el = cardEl[id];
     el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse');
     el.addEventListener('animationend', () => el.classList.remove('pulse'), { once: true });
@@ -1264,6 +1511,9 @@
     }
     for (const id of offTerm) {
       items.push(`<li class="warn"><button data-go="${id}"><b>${C[id].code}</b> is offered in the ${C[id].offered} only, but it is planned for ${nameAt(semOf(S.plan, id))}.</button></li>`);
+    }
+    for (const id of afterLast()) {
+      items.push(`<li class="warn"><button data-go="${id}"><b>${C[id].code}</b> is planned for ${nameAt(semOf(S.plan, id))}, after your last semester (${termName(span.end)}).</button></li>`);
     }
     for (const [id, lacks] of missing) {
       items.push(`<li class="warn"><button data-go="${id}"><b>${esc(C[id].code)}</b> needs ${esc(lacks.join('; '))}, which ${lacks.length === 1 ? 'isn\'t' : 'aren\'t'} in your plan.</button></li>`);
@@ -1323,8 +1573,7 @@
     CATS = programCats();
     // Brings back deleted and edited catalog courses.
     applyCourses({ custom });
-    S.terms = defaultTerms();
-    S.plan = clone(P.plan);
+    Object.assign(S, suggestedLayout());
     keepCustom(oldPlan, oldTerms);
     // Undo everything the transcript set; check-offs made by hand stay if asked.
     if (keepDone) { for (const id of S.fromTranscript) S.done.delete(id); } else S.done = new Set();
@@ -1646,16 +1895,23 @@
 
     // Next term: the first term that still has an unchecked required course.
     const nextIdx = S.plan.findIndex((sem) => sem.some((id) => !C[id].optional && !S.done.has(id)));
+    const today = new Date();
+    const dateIdx = span ? S.terms.findIndex((t) => t.kind !== 'credit' && termStarts(t) > today) : -1;
     if (!REQUIRED.length) {
-      $('auditNextTerm').textContent = nameAt(0);
+      $('auditNextTerm').textContent = nameAt(Math.max(0, dateIdx));
       $('auditNextSub').textContent = 'Add courses to get started';
     } else if (nextIdx < 0) {
       $('auditNextTerm').textContent = 'Done';
       $('auditNextSub').textContent = 'All requirements met';
+    } else if (span && dateIdx < 0) {
+      $('auditNextTerm').textContent = 'None planned';
+      $('auditNextSub').textContent = `${plural(REQUIRED.filter((id) => !S.done.has(id)).length, 'course')} left`;
     } else {
-      const left = S.plan[nextIdx].filter((id) => !C[id].optional && !S.done.has(id));
-      const termsLeft = S.plan.filter((sem) => sem.some((id) => !C[id].optional && !S.done.has(id))).length;
-      $('auditNextTerm').textContent = nameAt(nextIdx);
+      // With dates, the next term is the next one that hasn't begun; without them, the first with courses left.
+      const from = span ? dateIdx : nextIdx;
+      const left = S.plan[from].filter((id) => !C[id].optional && !S.done.has(id));
+      const termsLeft = S.plan.slice(from).filter((sem) => sem.some((id) => !C[id].optional && !S.done.has(id))).length;
+      $('auditNextTerm').textContent = nameAt(from);
       $('auditNextSub').textContent = `${plural(left.length, 'course')} left, ${plural(termsLeft, 'term')} to go`;
     }
 
@@ -1706,6 +1962,7 @@
   const TRANSCRIPT_UPLOAD = false;
 
   function renderDock() {
+    $('dockNote').textContent = officialNote();
     const t = S.transcript;
     const main = $('dockMain');
     // With transcript upload hidden, a UT plan's dock only carries the drag-and-drop hint.
@@ -1882,6 +2139,36 @@
   $('modal').addEventListener('click', (ev) => { if (ev.target === $('modal')) closeModal(); });
   window.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !$('modal').hidden) closeModal(); });
 
+  // ---------------------------------------------------------------- columns / overview
+  function applyView() {
+    track.classList.toggle('vertical', vertical());
+    // Summer pills go back beside their column.
+    if (!vertical()) columnsEl.querySelectorAll('.add-summer').forEach((p) => { p.style.top = ''; p.style.left = ''; });
+    // The Credit claimed tab is sized to the Year 1 block in columns; in the overview it is a one-line strip.
+    if (vertical() && $('claimSlot')) $('claimSlot').style.height = '';
+    $('app').classList.toggle('view-overview', vertical());
+    document.querySelectorAll('#viewSwitch button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.view === view));
+  }
+  function setView(next) {
+    if (next === view || (S.drag && S.drag.active)) return;
+    view = next;
+    try { localStorage.setItem('dp.view', view); } catch (_) { /* ignore */ }
+    anims.clear();
+    for (const el of Object.values(cardEl)) el.style.transform = '';
+    applyView();
+    scroller.jump(0);
+    viewport.scrollTop = 0;
+    columnsEl.classList.remove('view-in'); void columnsEl.offsetWidth; columnsEl.classList.add('view-in');
+    // The line layers and year blocks still have the old view's size; shrink them so they don't stretch the new one,
+    // then lay out twice: once to move the blocks, once to measure without them.
+    for (let pass = 0; pass < 2; pass++) {
+      for (const layer of [svg, svgTop]) { layer.setAttribute('width', 0); layer.setAttribute('height', 0); }
+      drawLines();
+    }
+    updateSemnav(); loop.kick();
+  }
+  document.querySelectorAll('#viewSwitch button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
+
   // ---------------------------------------------------------------- minimize panels
   // Collapses the toolbar, audit and semester bar so only the flowchart shows.
   function setPanels(collapsed, animate = true) {
@@ -1907,7 +2194,7 @@
   }
   function updatePanelToggle() {
     const collapsed = $('app').classList.contains('panels-collapsed');
-    $('panelToggleText').textContent = collapsed ? `Show audit: ${$('auditPct').textContent}` : 'Minimize';
+    $('panelToggleText').textContent = collapsed ? `Show audit: ${$('auditPct').textContent}` : 'Hide audit';
   }
   $('panelToggle').addEventListener('click', () => setPanels(!$('app').classList.contains('panels-collapsed')));
   $('panels').addEventListener('transitionend', (ev) => {
@@ -2037,7 +2324,7 @@
     CATS = programCats();
     BASE = withOnTimeLimits(window.FS.clone(P.courses), defaultTerms().filter(isRegular).length);
     window.FS_PROGRAM = P; // transcript.js matches against the selected program
-    S.catFocus = null;
+    S.catFocus = new Set();
     applyColors();
     try { if (remember) localStorage.setItem('dp.program', P.id); } catch (_) { /* ignore */ }
     fillProgramSelect();
@@ -2047,10 +2334,16 @@
     $('certBtn').hidden = P.own && !P.ut; // certificates are UT's only
     $('resetLabel').textContent = !P.own ? 'Reset to suggested' : P.def.source ? 'Reset to file' : 'Clear plan';
     $('brandDept').textContent = P.own && !P.ut ? P.dept : P.own ? 'The University of Texas at Austin' : P.dept;
+    updateSpanBtn();
     $('brandMeta').textContent = P.own ? (P.def.source && P.def.program && P.def.school ? `${P.def.program}, from ${P.def.source}` : P.degree) : `${P.degree}, 2026-28 catalog: ${P.hours} hours`;
     loadPlan();
     buildLegend();
   }
+
+  // The reminder on the board and in both PDFs that this is a planning tool, with where the plan should be confirmed.
+  const officialNote = () => `Not an official degree audit. ${P.own ? 'Confirm your plan with your school\'s advising office.'
+    : isBusiness() ? 'Confirm your plan with the BBA Program Office.'
+      : 'Prerequisites are from the 2025-26 listings. Confirm with your advisor.'}`;
 
   // Program notes: critical path, rules and caveats from the catalog review, plus source links.
   $('programInfo').addEventListener('click', () => {
@@ -2173,6 +2466,23 @@
     const rec = db.courses[base];
     return rec ? { rec, base, topic, topicRec: topic && rec.topics ? rec.topics[topic] : null } : null;
   }
+  // A planner chip shows its course number; the name appears inside the chip while it is hovered or focused, drawn over
+  // its neighbors so nothing shifts under the cursor. It opens to the right, or to the left when it only fits there, and
+  // a name too long for either side wraps within the wider one.
+  const chipName = (name) => (name ? `<small class="nm">${esc(name)}</small>` : '');
+  function placeChipName(ev) {
+    const chip = ev.target.closest && ev.target.closest('.mn-chip');
+    const nm = chip && chip.querySelector('.nm');
+    if (!nm) return;
+    chip.classList.remove('nm-left');
+    nm.style.maxWidth = '';
+    const box = document.querySelector('.modal').getBoundingClientRect(), at = chip.getBoundingClientRect();
+    const right = box.right - 12 - at.right, left = at.left - box.left - 12, need = nm.getBoundingClientRect().width;
+    if (need > right && left > right) chip.classList.add('nm-left');
+    if (need > Math.max(left, right)) nm.style.maxWidth = `${Math.max(left, right)}px`;
+  }
+  $('modalBody').addEventListener('mouseover', placeChipName);
+  $('modalBody').addEventListener('focusin', placeChipName);
   const courseTitle = (code) => { const r = courseRec(code); return r ? (r.topicRec && r.topicRec.title) || r.rec.title : ''; };
   function courseHours(code) {
     const r = courseRec(code);
@@ -2488,7 +2798,6 @@
     if (/all undergraduates|any major|non-business|UT Austin undergraduates|non-geosciences|business and non-business/i.test(t)) return { ok: true, text: 'Open to your major' };
     return { ok: null, text: 'Check eligibility' };
   }
-  const eligTag = (el) => `<span class="tagp ${el.ok === true ? 'ok' : el.ok === false ? 'no' : 'maybe'}">${esc(el.text)}</span>`;
   const safeUrl = (u) => (/^https:\/\/[^\s"<>]+$/.test(u || '') ? u : null);
 
   // ---- choosing a minor
@@ -2509,9 +2818,8 @@
         const shown = items.filter(({ e, el }) => (!onlyOpen || el.ok !== false) && (!q || `${e.name} ${e.college}`.toLowerCase().includes(q)));
         const colleges = [...new Set(shown.map(({ e }) => e.college))];
         $('mpList').innerHTML = colleges.map((col) => `<section class="mp-group"><h3>${esc(col)}</h3>` +
-          shown.filter(({ e }) => e.college === col).map(({ e, el }) => `<button class="mp-item" data-minor="${esc(e.id)}">` +
-            `<span class="mp-name">${esc(e.name)}<small>${e.totalHours} hours${e.openTo ? ` · ${esc(e.openTo)}` : ''}</small></span>` +
-            `<span class="mp-tags">${eligTag(el)}${e.applicationRequired ? '<span class="tagp">Application required</span>' : ''}</span></button>`).join('') +
+          shown.filter(({ e }) => e.college === col).map(({ e }) => `<button class="mp-item" data-minor="${esc(e.id)}">` +
+            `<span class="mp-name">${esc(e.name)}<small>${e.totalHours} hours${e.openTo ? ` · ${esc(e.openTo)}` : ''}</small></span></button>`).join('') +
           `</section>`).join('') || `<p class="mp-empty">No ${A.many} match. ${onlyOpen ? `Try unchecking “Only show ${A.many} open to your major”.` : ''}</p>`;
         $('mpList').querySelectorAll('[data-minor]').forEach((b) => b.addEventListener('click', () => chooseMinor(b.dataset.minor)));
       };
@@ -2660,14 +2968,13 @@
         if (C[id].cat === ADD) {
           const need = lacks.get(id);
           if (need) warned.set(id, need);
-          return `<button class="mn-chip inplan minorcard${isDone ? ' done' : ''}${need ? ' lacks' : ''}" data-remove="${esc(id)}" title="${need ? `Needs ${esc(need.join('; '))}. ` : ''}Remove ${esc(displayCode(code))} from your plan">` +
-            `${need ? ICON.alert : ICON.tick}${esc(displayCode(code))}<small class="when">${esc(when)}</small><small class="rm">Remove</small></button>`;
+          return `<button class="mn-chip inplan minorcard${isDone ? ' done' : ''}${need ? ' lacks' : ''}" data-remove="${esc(id)}" title="${need ? `Needs ${esc(need.join('; '))}. ` : ''}Remove from your plan" aria-label="Remove ${esc(displayCode(code))}${title ? `: ${esc(title)}` : ''}">` +
+            `${need ? ICON.alert : ICON.tick}${esc(displayCode(code))}<small class="when">${esc(when)}</small><small class="rm">Remove</small>${chipName(title)}</button>`;
         }
-        return `<button class="mn-chip inplan${isDone ? ' done' : ''}" data-go="${esc(id)}" title="${esc(title)}: part of your degree plan">${ICON.tick}${esc(displayCode(code))}<small>${esc(when)}</small></button>`;
+        return `<button class="mn-chip inplan${isDone ? ' done' : ''}" data-go="${esc(id)}" title="Part of your degree plan" aria-label="${esc(displayCode(code))}${title ? `: ${esc(title)}` : ''}, part of your degree plan">${ICON.tick}${esc(displayCode(code))}<small>${esc(when)}</small>${chipName(title)}</button>`;
       }
       if (!courseRec(code)) return `<button class="mn-chip" disabled title="Not in the 2026-27 catalog">${esc(displayCode(code))}<small>not offered</small></button>`;
-      return `<button class="mn-chip add" data-add="${esc(code)}" title="Add ${esc(displayCode(code))}${title ? `: ${esc(title)}` : ''}">${ICON.plus}${esc(displayCode(code))}` +
-        `${code !== displayCode(code) && title ? `<small>${esc(title)}</small>` : ''}</button>`;
+      return `<button class="mn-chip add" data-add="${esc(code)}" aria-label="Add ${esc(displayCode(code))}${title ? `: ${esc(title)}` : ''}">${ICON.plus}${esc(displayCode(code))}${chipName(title)}</button>`;
     };
     const chips = (codes) => `<div class="mn-chips">${[...new Set(codes)].map(chip).join('')}</div>`;
     const openBox = (filter, text) => `<div class="mn-open" data-filter="${esc(JSON.stringify(filter || {}))}"><input placeholder="Course number" aria-label="${esc(text || 'Course number')}"><button class="btn">Add</button><p class="ac-error" hidden></p></div>`;
@@ -2973,12 +3280,12 @@
       if (id) {
         const isDone = S.done.has(id), when = isDone ? 'completed' : nameAt(semOf(S.plan, id));
         if (C[id].cat === 'minor') {
-          return `<button class="mn-chip inplan minorcard${isDone ? ' done' : ''}" data-remove="${esc(id)}" title="Remove ${esc(c.code)} from your plan">` +
-            `${ICON.tick}${esc(c.code)}<small class="when">${esc(when)}</small><small class="rm">Remove</small></button>`;
+          return `<button class="mn-chip inplan minorcard${isDone ? ' done' : ''}" data-remove="${esc(id)}" title="Remove from your plan" aria-label="Remove ${esc(c.code)}${c.title ? `: ${esc(c.title)}` : ''}">` +
+            `${ICON.tick}${esc(c.code)}<small class="when">${esc(when)}</small><small class="rm">Remove</small>${chipName(c.title)}</button>`;
         }
-        return `<button class="mn-chip inplan${isDone ? ' done' : ''}" data-go="${esc(id)}" title="${esc(c.title)}: part of your degree plan">${ICON.tick}${esc(C[id].code)}<small>${esc(when)}</small></button>`;
+        return `<button class="mn-chip inplan${isDone ? ' done' : ''}" data-go="${esc(id)}" title="Part of your degree plan" aria-label="${esc(C[id].code)}${c.title ? `: ${esc(c.title)}` : ''}, part of your degree plan">${ICON.tick}${esc(C[id].code)}<small>${esc(when)}</small>${chipName(c.title)}</button>`;
       }
-      return `<button class="mn-chip add" data-own="${gi}:${ci}" title="Add ${esc(c.code)}${c.title ? `: ${esc(c.title)}` : ''}">${ICON.plus}${esc(c.code)}<small>${esc(c.title)}${c.hrs !== 3 ? `, ${c.hrs} hr` : ''}</small></button>`;
+      return `<button class="mn-chip add" data-own="${gi}:${ci}" aria-label="Add ${esc(c.code)}${c.title ? `: ${esc(c.title)}` : ''}">${ICON.plus}${esc(c.code)}${chipName(`${c.title || ''}${c.hrs !== 3 ? `${c.title ? ', ' : ''}${c.hrs} hr` : ''}`)}</button>`;
     };
     const block = (x, gi) => {
       const { g } = x;
@@ -3128,13 +3435,13 @@
     `<button class="wc-choice" data-go="${go}"><span class="wc-ico">${icon}</span><span class="wc-copy"><strong>${title}</strong><span>${text}</span>${extra}</span><span class="wc-arrow">${WICON.arrow}</span></button>`;
   const backBtn = () => `<button class="wc-back" data-back>${WICON.back}Back</button>`;
 
-  function showWelcome({ first = false } = {}) {
-    W.trail = []; W.step = null; W.chains = null;
+  function showWelcome({ first = false, gradOnly = false } = {}) {
+    W.trail = []; W.step = null; W.chains = null; W.gradOnly = gradOnly;
     $('wcClose').hidden = first;
     $('welcome').hidden = false;
     document.body.classList.add('welcoming');
     requestAnimationFrame(() => $('welcome').classList.add('open'));
-    wcGo('school');
+    wcGo(span ? 'school' : 'dates');
   }
   function hideWelcome() {
     try { localStorage.setItem('dp.started', '1'); } catch (_) { /* ignore */ }
@@ -3145,6 +3452,62 @@
     requestAnimationFrame(() => { drawLines(); updateSemnav(); loop.kick(); });
   }
   $('wcClose').addEventListener('click', hideWelcome);
+
+  // ---- first and last semesters
+  const SPAN_HELP = 'Choose your first and last semesters. FourSight puts your plan on those dates. If you haven\'t finished yet, use the semester you expect to finish.';
+  function spanRows() {
+    const now = new Date().getFullYear();
+    const seasons = (sel) => [['fall', 'Fall'], ['spring', 'Spring'], ['summer', 'Summer']].map(([v, l]) => `<option value="${v}"${sel === v ? ' selected' : ''}>${l}</option>`).join('');
+    const years = (from, to, sel) => {
+      const list = [...new Set([...(sel ? [sel] : []), ...Array.from({ length: to - from + 1 }, (_, i) => from + i)])].sort((a, b) => a - b);
+      return list.map((y) => `<option value="${y}"${y === sel ? ' selected' : ''}>${y}</option>`).join('');
+    };
+    const row = (id, label, t, from, to) => `<div class="sp-row"><span class="sp-label">${label}</span>` +
+      `<select id="${id}Kind" aria-label="${label}: semester"><option value="">Semester</option>${seasons(t && t.kind)}</select>` +
+      `<select id="${id}Year" aria-label="${label}: year"><option value="">Year</option>${years(from, to, t && t.year)}</select></div>`;
+    return row('spStart', 'First semester', span && span.start, now - 8, now + 2) + row('spEnd', 'Last semester', span && span.end, now - 1, now + 10);
+  }
+  const readSpan = () => {
+    const t = (id) => ({ kind: $(`${id}Kind`).value, year: +$(`${id}Year`).value });
+    return { start: t('spStart'), end: t('spEnd') };
+  };
+  const spanFilled = (t) => !!(t.kind && t.year);
+  const spanOk = (sp) => spanFilled(sp.start) && spanFilled(sp.end) && semesterRank(sp.end) > semesterRank(sp.start);
+  function spanForm(action) {
+    return `<form id="spForm" novalidate>${spanRows()}` +
+      `<p class="sp-err" id="spErr" hidden>Your last semester has to come after your first.</p>` +
+      `<div class="wc-actions"><button class="btn primary wc-go" id="spGo" type="submit" disabled>${action}</button></div></form>`;
+  }
+  function wireSpanForm(done) {
+    const check = () => {
+      const sp = readSpan();
+      $('spGo').disabled = !spanOk(sp);
+      $('spErr').hidden = !(spanFilled(sp.start) && spanFilled(sp.end)) || spanOk(sp);
+    };
+    $('spForm').addEventListener('change', check);
+    $('spForm').addEventListener('submit', (ev) => { ev.preventDefault(); if (spanOk(readSpan())) done(readSpan()); });
+    check();
+  }
+  function updateSpanBtn() {
+    $('spanBtn').textContent = span ? `${termName(span.start.kind === 'summer' ? { kind: 'summer', year: 0 } : { kind: span.start.kind, year: 1 })} to ${KIND[span.end.kind]} ${span.end.year}` : 'Set your semesters';
+  }
+  // A new span moves the open plan onto the new dates; other plans follow when they are next opened.
+  function setSpan(sp, { keep = false } = {}) {
+    span = sp;
+    try { localStorage.setItem('dp.span', JSON.stringify(sp)); } catch (_) { /* ignore */ }
+    Object.assign(S, onDates(S.terms, S.plan));
+    for (const pc of S.prior) pc.index = Math.min(pc.index, S.plan.length - 1);
+    updateSpanBtn();
+    build(false);
+    paint();
+    if (keep) save();
+    if (S.selected) renderDrawer();
+    requestAnimationFrame(() => { drawLines(); updateSemnav(); });
+  }
+  $('spanBtn').addEventListener('click', () => {
+    openModal(`<h2 id="modalTitle">When do you start and finish?</h2><p class="m-sub">${SPAN_HELP}</p>${spanForm('Save')}`);
+    wireSpanForm((sp) => { setSpan(sp, { keep: true }); closeModal(); });
+  });
   $('newPlanBtn').addEventListener('click', () => showWelcome());
   window.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape' && !$('welcome').hidden && !$('wcClose').hidden && $('modal').hidden) hideWelcome();
@@ -3160,6 +3523,7 @@
     stage.classList.add(back ? 'in-back' : 'in');
     stage.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => wcChoose(b.dataset.go)));
     stage.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', wcBack));
+    if (step === 'dates') wireSpanForm((sp) => { setSpan(sp); if (W.gradOnly) hideWelcome(); else wcGo('school'); });
     stage.querySelectorAll('[data-major]').forEach((b) => b.addEventListener('click', () => { hideWelcome(); selectProgram(b.dataset.major); }));
     // Keyboard users start on the heading; the paste box and the details form take focus so they can type right away.
     const box = stage.querySelector('textarea, #dtForm input');
@@ -3462,7 +3826,11 @@
 
   // ---- the steps
   const WSTEPS = {
-    school: () =>
+    dates: () =>
+      `<p class="wc-kicker">Plan every semester in one view</p>` +
+      `<h1 id="wcTitle">When do you start and finish?</h1>` +
+      `<p class="wc-sub">${SPAN_HELP}</p>` + spanForm('Continue'),
+    school: () => (W.trail.length ? backBtn() : '') +
       `<p class="wc-kicker">Plan every semester in one view</p>` +
       `<h1 id="wcTitle">Do you attend the University of Texas at Austin?</h1>` +
       `<div class="wc-choices">` +
@@ -3577,6 +3945,7 @@
   // Page footers sit in the bottom margin, which FourSight skips when it reads the file back.
   function pdfFooters(doc, note, margin) {
     doc.pages.forEach((pg, i) => {
+      pg.text(officialNote(), margin, pg.h - 25, { size: 6.5, color: PDF_MUTED });
       pg.text(note, margin, pg.h - 16, { size: 6.5, color: PDF_MUTED });
       pg.text(`Page ${i + 1} of ${doc.pages.length}`, pg.w - margin, pg.h - 16, { size: 6.5, color: PDF_MUTED, align: 'right' });
     });
@@ -3638,7 +4007,7 @@
       b.idxs.forEach((ti, k) => {
         const x = M + k * (b.w + GAP), t = S.terms[ti], rows = b.cols[k];
         pg.rect(x, y, b.w, 20, { fill: PDF_HEAD });
-        pg.text(HEAD[t.kind], x + 8, y + 13.5, { size: 9.5, bold: true, color: PDF_INK });
+        pg.text(span && t.kind !== 'credit' ? termName(t) : HEAD[t.kind], x + 8, y + 13.5, { size: 9.5, bold: true, color: PDF_INK });
         let ry = y + 20;
         pg.text('Course', x + 8, ry + 10.5, { size: 6.5, bold: true, color: PDF_MUTED });
         pg.text('Title', x + 8 + codeW, ry + 10.5, { size: 6.5, bold: true, color: PDF_MUTED });
@@ -3679,7 +4048,7 @@
       const per = Math.max(2, reg.length);
       const bands = [reg, summer].filter((b) => b.length).map((b) => band(b, per));
       if (y + 22 + bands.reduce((n, b) => n + b.h + 10, 0) > FLOOR && y > 140) newPage();
-      pg.text(YEAR_WORDS[yr] ? `${YEAR_WORDS[yr]} Year` : `Year ${yr}`, M, y + 10, { size: 11, bold: true, color: PDF_ACCENT });
+      pg.text(yr === 0 ? 'Before Year 1' : YEAR_WORDS[yr] ? `${YEAR_WORDS[yr]} Year` : `Year ${yr}`, M, y + 10, { size: 11, bold: true, color: PDF_ACCENT });
       y += 20;
       for (const b of bands) { if (y + b.h > FLOOR) newPage(); drawBand(b); }
       y += 6;
@@ -4012,7 +4381,7 @@
       `<form id="fbForm" novalidate>` +
       `<div class="fb-mail">` +
       `<div class="fb-row"><span class="fb-label">To</span><span class="fb-to">FourSight developer</span></div>` +
-      `<label class="fb-row" id="fbEmailRow"><span class="fb-label">Your email</span><input id="fbEmail" type="email" autocomplete="email" maxlength="120" required value="${esc(fbDraft.email)}"></label>` +
+      `<label class="fb-row" id="fbEmailRow"><span class="fb-label">School Email</span><input id="fbEmail" type="email" autocomplete="email" maxlength="120" required value="${esc(fbDraft.email)}"></label>` +
       `<label class="fb-row"><span class="fb-label">Header</span><textarea id="fbProblem" rows="2" maxlength="200" required>${esc(fbDraft.problem)}</textarea></label>` +
       `<label class="fb-body"><span class="fb-label">Body</span><textarea id="fbExplain" rows="9" maxlength="5000" required>${esc(fbDraft.explain)}</textarea></label>` +
       `</div>` +
@@ -4082,6 +4451,95 @@
   $('feedbackBtn').addEventListener('click', showFeedback);
 
   // ---------------------------------------------------------------- boot
+  // ---------------------------------------------------------------- settings and profile
+  const settingsMenu = $('settingsMenu');
+  function setSettingsMenu(open) {
+    settingsMenu.classList.toggle('open', open);
+    $('settingsBtn').setAttribute('aria-expanded', String(open));
+  }
+  $('settingsBtn').addEventListener('click', (ev) => { ev.stopPropagation(); setSettingsMenu(!settingsMenu.classList.contains('open')); });
+  document.addEventListener('click', (ev) => { if (!settingsMenu.contains(ev.target)) setSettingsMenu(false); });
+  window.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape' && settingsMenu.classList.contains('open')) { setSettingsMenu(false); $('settingsBtn').focus(); }
+  });
+  $('profileBtn').addEventListener('click', () => { setSettingsMenu(false); showProfile(); });
+  $('colorsBtn').addEventListener('click', () => { setSettingsMenu(false); showColors(); });
+
+  // The profile stays on this device. Its email is the one the feedback form remembers, so there is only one to keep
+  // up to date. The rest is kept in dp.profile. A UT student picks a college and major from FourSight's programs; a
+  // student elsewhere types them, as on the screen that names an uploaded plan.
+  const readProfile = () => { try { return JSON.parse(localStorage.getItem('dp.profile') || '{}') || {}; } catch (_) { return {}; } };
+  const OWN_COLLEGE = 'own';
+  function showProfile() {
+    const prof = readProfile(), ut = !P.own || P.ut;
+    const field = (id, label, value, attrs = '') => `<label class="ac-field"><span>${label}</span><input id="${id}" maxlength="120" value="${esc(value || '')}" ${attrs}></label>`;
+    const college = P.own ? OWN_COLLEGE : FSP[P.id].college || 'Engineering';
+    const collegeOptions = [...majorColleges().map((c) => [c, c]), [OWN_COLLEGE, 'My college isn\'t listed']]
+      .map(([v, l]) => `<option value="${esc(v)}"${v === college ? ' selected' : ''}>${esc(l)}</option>`).join('');
+    openModal(`<h2 id="modalTitle">Profile</h2><p class="m-sub">Everything here stays on this device.</p>` +
+      `<form id="pfForm" class="pf-form" novalidate>` +
+      `<h3 class="pf-h">About you</h3><div class="pf-grid">` +
+      field('pfName', 'Name', prof.name, 'autocomplete="name"') +
+      field('pfEmail', 'School Email', fbDraft.email, 'type="email" autocomplete="email"') +
+      field('pfAdvisor', 'Advisor Name', prof.advisor, 'autocomplete="off"') +
+      field('pfAdvisorEmail', 'Advisor Email', prof.advisorEmail, 'type="email" autocomplete="off"') +
+      `</div><h3 class="pf-h">Your semesters</h3>${spanRows()}` +
+      `<h3 class="pf-h">Your degree</h3>` +
+      (ut
+        ? `<div class="pf-grid"><label class="ac-field"><span>College</span><select id="pfCollege">${collegeOptions}</select></label>` +
+          `<label class="ac-field"><span>Major</span><select id="pfMajor"></select></label></div>` +
+          `<p class="ac-hint pf-hint">Each major keeps its own saved plan, so you can switch back. At another school? Use New plan.</p>`
+        : `<div class="pf-grid">${field('pfSchool', 'College or University', P.def.school, 'autocomplete="off"')}${field('pfProgram', 'Major', P.def.program, 'autocomplete="off"')}</div>` +
+          `<p class="ac-hint pf-hint">At UT Austin? Use New plan.</p>`) +
+      `<p class="ac-error" id="pfErr" hidden></p>` +
+      `<div class="m-actions"><button type="button" class="btn ghost" id="pfCancel">Cancel</button><button type="submit" class="btn primary">Save</button></div></form>`);
+    const fillMajors = () => {
+      const col = $('pfCollege').value;
+      if (col === OWN_COLLEGE) {
+        $('pfMajor').innerHTML = `<option value="mine-ut">${esc(FSP['mine-ut'] && FSP['mine-ut'].def.source ? `Built from ${FSP['mine-ut'].def.source}` : 'Your own courses (no template)')}</option>`;
+        return;
+      }
+      const ids = window.FS.order.filter((o) => collegeOf(o) === col).flatMap((o) => (o.group ? o.ids : [o.id]));
+      $('pfMajor').innerHTML = `<option value="">Choose a major</option>` +
+        ids.map((id) => `<option value="${id}"${id === P.id ? ' selected' : ''}>${esc(FSP[id].concentration ? `ECE: ${FSP[id].concentration}` : FSP[id].name)}</option>`).join('');
+    };
+    if (ut) { fillMajors(); $('pfCollege').addEventListener('change', fillMajors); }
+    $('pfCancel').addEventListener('click', closeModal);
+    $('pfForm').addEventListener('input', () => { $('pfErr').hidden = true; });
+    $('pfForm').addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const fail = (msg, el) => { $('pfErr').textContent = msg; $('pfErr').hidden = false; if (el) el.focus(); };
+      const value = (id) => $(id).value.trim();
+      const email = value('pfEmail'), advisorEmail = value('pfAdvisorEmail');
+      if (email && !EMAIL_RE.test(email)) return fail('Enter a valid school email, or leave it blank.', $('pfEmail'));
+      if (advisorEmail && !EMAIL_RE.test(advisorEmail)) return fail('Enter a valid advisor email, or leave it blank.', $('pfAdvisorEmail'));
+      const sp = readSpan();
+      // Semesters can only be left blank by a student who hasn't set them yet.
+      const blankSpan = !span && !(sp.start.kind || sp.start.year || sp.end.kind || sp.end.year);
+      if (!blankSpan && !spanOk(sp)) return fail(spanFilled(sp.start) && spanFilled(sp.end) ? 'Your last semester has to come after your first.' : 'Choose your first and last semesters.', $('spStartKind'));
+      const major = ut ? $('pfMajor').value : '';
+      if (ut && !major) return fail('Choose your major.', $('pfMajor'));
+      const school = ut ? '' : tidyLabel($('pfSchool').value), program = ut ? '' : tidyLabel($('pfProgram').value);
+      if (!ut && P.def.source && (!school || !program)) return fail('Enter your college or university and your major.', !school ? $('pfSchool') : $('pfProgram'));
+      try {
+        localStorage.setItem('dp.profile', JSON.stringify({ name: value('pfName'), advisor: value('pfAdvisor'), advisorEmail }));
+        if (email) localStorage.setItem('dp.feedbackEmail', email); else localStorage.removeItem('dp.feedbackEmail');
+      } catch (_) { /* ignore */ }
+      fbDraft.email = email;
+      closeModal();
+      if (spanOk(sp) && JSON.stringify(sp) !== JSON.stringify(span)) setSpan(sp, { keep: true });
+      if (ut && major !== P.id) selectProgram(major);
+      if (!ut && (school !== (P.def.school || '') || program !== (P.def.program || ''))) {
+        P.def.school = school;
+        P.def.program = program;
+        saveOwnDef();
+        FSP[P.id] = ownProgram(P.id, P.def);
+        selectProgram(P.id);
+      }
+      toast('Profile saved.');
+    });
+  }
+
   // Until a student has answered the welcome questions once, opening FourSight starts on them, over ChE. A student
   // who saved a plan before the welcome screen existed (Version 1) sees it too, and can close it to return to that
   // plan; it is only remembered once they pick a starting point or close it.
@@ -4089,8 +4547,9 @@
   try { startProgram = localStorage.getItem('dp.program'); started = !!localStorage.getItem('dp.started'); } catch (_) { /* ignore */ }
   selectProgram(startProgram || 'che', { remember: !!startProgram });
   if (!started) showWelcome({ first: !startProgram });
+  else if (!span) showWelcome({ gradOnly: true }); // a student from before this question: asked until answered
 
   // Debug handle for testing.
-  window.__dp = { showFeedback, planPdf, chainsPdf, importText, revertToSuggested, showWelcome, importCurriculum, startOwn, selectProgram, S, analyze, EDGES, ALL_EDGES, edgeBroken, rectOf, scroller, toggleDone, addSummer, addRegular, removeTerm, lateFrom,
+  window.__dp = { setView, renderAudit, setSpan, showFeedback, planPdf, chainsPdf, importText, revertToSuggested, showWelcome, importCurriculum, startOwn, selectProgram, S, analyze, EDGES, ALL_EDGES, edgeBroken, rectOf, scroller, toggleDone, addSummer, addRegular, removeTerm, lateFrom,
     toggleTerm, minors: { removeCard: removeMinorCard, load: loadMinors, choose: chooseMinor, request: requestMinorCourse, add: addMinorCourses, prereqPlan, planIdFor, remove: removeMinor, data: () => MN } };
 })();

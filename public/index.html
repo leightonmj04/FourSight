@@ -39,12 +39,28 @@
       <div class="topbar-right">
         <button class="btn" id="newPlanBtn" title="Start a different plan">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          New plan
+          <span class="btn-text">New plan</span>
         </button>
         <button class="btn panel-toggle" id="panelToggle" aria-expanded="true" aria-controls="panels">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 14 5-5 5 5"/></svg>
-          <span id="panelToggleText">Minimize</span>
+          <span id="panelToggleText">Hide audit</span>
         </button>
+        <div class="dlmenu" id="settingsMenu">
+          <button class="btn" id="settingsBtn" title="Settings" aria-label="Settings" aria-haspopup="menu" aria-expanded="false" aria-controls="settingsPop">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+            <span class="btn-text">Settings</span>
+          </button>
+          <div class="dl-pop settings-pop" id="settingsPop" role="menu" aria-label="Settings">
+            <button class="dl-item" role="menuitem" id="profileBtn">
+              <span class="dl-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span>
+              <span class="dl-copy"><strong>Profile</strong><span>Your semesters, college, major and contact details.</span></span>
+            </button>
+            <button class="dl-item" role="menuitem" id="colorsBtn">
+              <span class="dl-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 0 0 18c1.2 0 1.8-.9 1.8-1.8 0-1.3-1-1.6-1-2.7 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3Z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10" cy="7" r="1.2"/><circle cx="15" cy="7.5" r="1.2"/></svg></span>
+              <span class="dl-copy"><strong>Customize colors</strong><span>Pick the color for each course type on your plan.</span></span>
+            </button>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -94,7 +110,7 @@
           <div class="ring-text"><strong id="auditPct">0%</strong><small>complete</small></div>
         </div>
         <div class="audit-head">
-          <div class="audit-title">Degree audit <span class="live"><i></i>Live</span></div>
+          <div class="audit-title">Degree audit <span class="live"><i></i>Live</span><button class="link-btn span-btn" id="spanBtn"></button></div>
           <div class="audit-stats">
             <div class="astat done"><small>Completed</small><strong><span id="auditDoneHrs">0</span> <em>hrs</em></strong><span id="auditDoneSub"></span></div>
             <div class="astat"><small>Remaining</small><strong><span id="auditLeftHrs">0</span> <em>hrs</em></strong><span id="auditLeftSub"></span></div>
@@ -126,6 +142,21 @@
         <button class="pin-chip-close" id="pinChipClose" aria-label="Unpin"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
     </div>
+    <!-- The planner's own header, so the view switch stays when the audit and toolbar are hidden. -->
+    <div class="board-bar">
+      <div class="board-left">
+        <span class="board-title">4-Year Plan</span>
+        <div id="typeFilter"></div>
+      </div>
+      <div class="view-switch" id="viewSwitch" role="group" aria-label="How to show your plan">
+        <button data-view="columns" aria-pressed="true" title="Each semester as a column, with course names">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="5" height="15" rx="1.5"/><rect x="9.5" y="4.5" width="5" height="15" rx="1.5"/><rect x="15.5" y="4.5" width="5" height="15" rx="1.5"/></svg>Columns
+        </button>
+        <button data-view="overview" aria-pressed="false" title="Every semester as a row, top to bottom, so the whole plan fits on screen">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="17" height="4" rx="1.5"/><rect x="3.5" y="10" width="17" height="4" rx="1.5"/><rect x="3.5" y="16" width="17" height="4" rx="1.5"/></svg>Overview
+        </button>
+      </div>
+    </div>
     <main class="viewport" id="viewport">
       <div class="track" id="track">
         <div class="bands" id="bands"></div>
@@ -144,7 +175,10 @@
 
     <footer class="dock" id="dock">
       <div class="dock-main" id="dockMain"></div>
-      <p class="hint">Drag a course to another semester. Hover to trace its chain, or pin it to keep the chain lit. Click for details.</p>
+      <div class="dock-tips">
+        <p class="hint">Drag a course to another semester. Hover to trace its chain, or pin it to keep the chain lit. Click for details.</p>
+        <p class="dock-note" id="dockNote"></p>
+      </div>
       <input type="file" id="transcriptFile" accept=".pdf,.txt,.csv,application/pdf,text/plain,text/csv" hidden>
       <input type="file" id="curriculumFile" accept=".pdf,.txt,.csv,.tsv,.md,application/pdf,text/plain,text/csv" hidden>
       <input type="file" id="flowchartFile" accept=".pdf,.txt,.csv,.tsv,.md,application/pdf,text/plain,text/csv" hidden>
