@@ -263,12 +263,39 @@
   }
   const isExtra = (t) => isRegular(t) && (span ? pastEnd(t) : t.year > 4);
 
-  // One saved plan per program. ChE plans saved before programs existed used 'dp.plan.me'.
-  const planKey = () => `dp.plan.${P.id}`;
+  // ---- saved plans
+  // A student keeps any number of named plans, several for one major if they like. dp.plans lists them
+  // ({ id, name, program, created, updated, courses }) and dp.current is the one open. Each plan's progress is saved
+  // under dp.saved.<id>; a plan built from a curriculum file keeps that file's courses under dp.owndef.<id>.
+  // Plans from before named plans (one per program, under dp.plan.<program> and dp.own.<id>) are copied in once by
+  // migratePlans, and those old keys are left as they were.
+  const readPlans = () => { try { return JSON.parse(localStorage.getItem('dp.plans') || '[]') || []; } catch (_) { return []; } };
+  const writePlans = (list) => { try { localStorage.setItem('dp.plans', JSON.stringify(list)); } catch (_) { /* ignore */ } };
+  let currentPlanId = null;
+  try { currentPlanId = localStorage.getItem('dp.current'); } catch (_) { /* ignore */ }
+  const currentPlan = () => readPlans().find((p) => p.id === currentPlanId) || null;
+  function setCurrent(id) {
+    currentPlanId = id;
+    try { if (id) localStorage.setItem('dp.current', id); else localStorage.removeItem('dp.current'); } catch (_) { /* ignore */ }
+  }
+  const newPlanId = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+  // "Chemical Engineering", then "Chemical Engineering (2)" for a second plan of the same name.
+  function uniqueName(name, list = readPlans(), except = null) {
+    const taken = new Set(list.filter((p) => p.id !== except).map((p) => p.name));
+    if (!taken.has(name)) return name;
+    for (let n = 2; ; n++) if (!taken.has(`${name} (${n})`)) return `${name} (${n})`;
+  }
+  function addPlanEntry(program, name) {
+    const list = readPlans(), now = Date.now();
+    const entry = { id: newPlanId(), name: uniqueName(name, list), program, created: now, updated: now, courses: 0 };
+    list.push(entry);
+    writePlans(list);
+    return entry;
+  }
+  const planKey = () => `dp.saved.${currentPlanId}`;
   function savedState() {
     try {
-      let raw = localStorage.getItem(planKey());
-      if (!raw && P.id === 'che') raw = localStorage.getItem('dp.plan.me');
+      const raw = currentPlanId ? localStorage.getItem(planKey()) : null;
       const saved = JSON.parse(raw || 'null');
       S.minor = (saved && saved.minor) || null;
       S.cert = (saved && saved.cert) || null;
@@ -343,6 +370,12 @@
   }
   function save() {
     syncClaimed();
+    // A plan is saved under a name from its first change: a student who starts editing before choosing one gets
+    // one named after the major.
+    if (!currentPlan()) {
+      setCurrent(addPlanEntry(P.id, P.own ? (P.def.program || 'My plan') : programName()).id);
+      updatePlanName();
+    }
     try {
       localStorage.setItem(planKey(), JSON.stringify({
         terms: S.terms, plan: S.plan, done: [...S.done], credit: [...S.credit], taken: S.taken, prior: S.prior,
@@ -350,6 +383,13 @@
         claimed: [...S.claimed], minor: S.minor, cert: S.cert, suggested: planHash(P.plan),
       }));
     } catch (_) { /* ignore */ }
+    const list = readPlans(), entry = list.find((p) => p.id === currentPlanId);
+    if (entry) {
+      entry.updated = Date.now();
+      entry.program = P.id;
+      entry.courses = S.plan.flat().filter((id) => C[id] && !C[id].optional).length;
+      writePlans(list);
+    }
   }
   function moveCourse(plan, id, sem, index) {
     for (const s of plan) { const i = s.indexOf(id); if (i >= 0) s.splice(i, 1); }
@@ -473,7 +513,8 @@
         `<div class="td-menu" id="tdMenu" role="listbox" aria-multiselectable="true" aria-label="Course types to show">` +
           `<p class="td-hint">Pick one or more to show only those courses.</p>${items.join('')}</div>` +
       `</div>`;
-    $('legend').innerHTML =
+    // The line key sits in the 4-Year Plan header with the view switch, so it stays with the flowchart.
+    $('lineKeys').innerHTML =
       `<div class="line-keys">` +
         `<span><svg viewBox="0 0 26 10"><path d="M1 5h22" stroke="var(--edge)" stroke-width="2"/></svg>Prerequisite</span>` +
         `<span><svg viewBox="0 0 26 10"><path d="M1 5h22" stroke="var(--edge)" stroke-width="2" stroke-dasharray="4 3"/></svg>Co-requisite</span>` +
@@ -1500,10 +1541,10 @@
         : `${a.code} (${sa}) must be taken with or before ${b.code} (${sb})`;
       if (e.any) {
         if (e.any[0] !== e.from) continue; // one entry per one-of requirement
-        items.push(`<li><button data-go="${e.to}"><b>${b.code}</b> needs one of <b>${e.any.map((o) => C[o].code).join(' or ')}</b> ${e.type === 'pre' ? 'in an earlier semester' : 'in the same semester or earlier'}.</button></li>`);
+        items.push(`<li class="fixable"><button data-fix="${e.id}"><b>${b.code}</b> needs one of <b>${e.any.map((o) => C[o].code).join(' or ')}</b> ${e.type === 'pre' ? 'in an earlier semester' : 'in the same semester or earlier'}.<span class="is-fix">Click to fix</span></button></li>`);
         continue;
       }
-      items.push(`<li><button data-go="${e.to}"><b>${b.code}</b> needs <b>${a.code}</b>: ${e.type === 'pre' && sa === sb ? `they ${why}` : why}.</button></li>`);
+      items.push(`<li class="fixable"><button data-fix="${e.id}"><b>${b.code}</b> needs <b>${a.code}</b>: ${e.type === 'pre' && sa === sb ? `they ${why}` : why}.<span class="is-fix">Click to fix</span></button></li>`);
     }
     const { late, offTerm, missing } = analyze(S.plan);
     for (const id of late) {
@@ -1520,6 +1561,95 @@
     }
     $('issuesList').innerHTML = items.join('') || '<li class="empty">No conflicts.</li>';
     $('issuesList').querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => focusCourse(b.dataset.go, true)));
+    $('issuesList').querySelectorAll('[data-fix]').forEach((b) => b.addEventListener('click', () => fixConflict(b.dataset.fix)));
+  }
+
+  // ---------------------------------------------------------------- fixing a broken prerequisite
+  // Clicking a conflict moves as few courses as it can so the prerequisite comes first, and never breaks a
+  // prerequisite that wasn't already broken. It tries taking the prerequisite earlier and taking the course that
+  // needs it later; if one move isn't enough, the courses down (or up) that chain shift with it. Among the fixes
+  // that work it prefers the fewest moves, then no semester over its load limit and no new on-time, offered-term or
+  // after-your-last-semester warnings, then the shortest moves. Completed courses and the Credit claimed column
+  // stay put.
+  function planFixes(e) {
+    const base = S.plan;
+    const brokenBefore = analyze(base).broken;
+    const placeable = (t) => t >= 0 && t < base.length && S.terms[t].kind !== 'credit';
+    const movable = (plan, id) => !S.done.has(id) && placeable(semOf(plan, id));
+    const move = (plan, id, t) => { for (const sem of plan) { const i = sem.indexOf(id); if (i >= 0) sem.splice(i, 1); } plan[t].push(id); };
+    // Moves a course to term t or later, then pushes whatever needs it along after it.
+    function pushLater(plan, id, t, moved, depth = 0) {
+      const cur = semOf(plan, id);
+      if (t <= cur) return true;
+      if (depth > 16 || !movable(plan, id) || !placeable(t)) return false;
+      move(plan, id, t); moved.set(id, t);
+      for (const x of EDGES) {
+        if (x.free || !(x.from === id || (x.any && x.any.includes(id))) || !edgeBroken(plan, x)) continue;
+        if (!pushLater(plan, x.to, x.type === 'pre' ? t + 1 : t, moved, depth + 1)) return false;
+      }
+      return true;
+    }
+    // Moves a course to term t or earlier, then pulls what it needs along before it.
+    function pullEarlier(plan, id, t, moved, depth = 0) {
+      const cur = semOf(plan, id);
+      if (t >= cur) return true;
+      if (depth > 16 || !movable(plan, id) || !placeable(t)) return false;
+      move(plan, id, t); moved.set(id, t);
+      for (const x of EDGES) {
+        if (x.free || x.to !== id || !edgeBroken(plan, x)) continue;
+        const opts = (x.any || [x.from]).filter((o) => C[o] && semOf(plan, o) >= 0).sort((a, b) => semOf(plan, a) - semOf(plan, b));
+        if (!opts.length || !pullEarlier(plan, opts[0], x.type === 'pre' ? t - 1 : t, moved, depth + 1)) return false;
+      }
+      return true;
+    }
+    const cap = (t) => (S.terms[t].kind === 'summer' ? 14 : 18);
+    const heavy = (plan) => plan.reduce((n, sem, t) => n + (hours(sem) > cap(t) ? 1 : 0), 0);
+    const pastLast = (plan) => plan.reduce((n, sem, t) => n + (pastEnd(S.terms[t]) ? sem.length : 0), 0);
+    const before = analyze(base), heavyBefore = heavy(base), pastBefore = pastLast(base);
+    const options = [];
+    const tryFix = (fn, id, t) => {
+      const plan = base.map((sem) => sem.slice()), moved = new Map();
+      if (!fn(plan, id, t, moved) || !moved.size || edgeBroken(plan, e)) return;
+      const after = analyze(plan);
+      if ([...after.broken].some((b) => !brokenBefore.has(b))) return; // never break another chain
+      const distance = [...moved].reduce((n, [cid, to]) => n + Math.abs(to - semOf(base, cid)), 0);
+      const warnings = Math.max(0, after.late.size - before.late.size) + Math.max(0, after.offTerm.size - before.offTerm.size)
+        + Math.max(0, heavy(plan) - heavyBefore) + Math.max(0, pastLast(plan) - pastBefore);
+      options.push({ moved, score: moved.size * 100 + warnings * 25 + distance });
+    };
+    const froms = (e.any || [e.from]).filter((o) => C[o] && semOf(base, o) >= 0);
+    const toSem = semOf(base, e.to);
+    for (const from of froms) {
+      const latest = e.type === 'pre' ? toSem - 1 : toSem; // the prerequisite earlier
+      for (let t = latest; t >= Math.max(0, latest - 4); t--) tryFix(pullEarlier, from, t);
+    }
+    const earliestFrom = Math.min(...froms.map((o) => semOf(base, o)));
+    const first = e.type === 'pre' ? earliestFrom + 1 : earliestFrom; // or the course that needs it later
+    for (let t = first; t < Math.min(base.length, first + 5); t++) tryFix(pushLater, e.to, t);
+    return options.sort((a, b) => a.score - b.score)[0] || null;
+  }
+
+  function fixConflict(edgeId) {
+    const e = EDGES.find((x) => x.id === edgeId);
+    if (!e || !edgeBroken(S.plan, e)) { renderIssues(); return; }
+    const fix = planFixes(e);
+    if (!fix) {
+      toast(`FourSight couldn\u2019t fix this without breaking another prerequisite. Drag ${esc(C[e.to].code)} or ${esc((e.any || [e.from]).map((o) => C[o].code).join(' or '))} to a different semester.`);
+      focusCourse(e.to);
+      return;
+    }
+    const prev = snapshot();
+    const moves = [...fix.moved].map(([id, t]) => [id, t, semOf(S.plan, id)]);
+    for (const [id, t] of moves) moveCourse(S.plan, id, t, Infinity);
+    placeCards();
+    slideFrom(prev, 520);
+    save();
+    paint();
+    if (S.selected) renderDrawer();
+    if (!vertical()) scroller.toColumn(Math.min(...moves.map(([, t, from]) => Math.min(t, from))));
+    for (const [id] of moves) { const el = cardEl[id]; el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse'); el.addEventListener('animationend', () => el.classList.remove('pulse'), { once: true }); }
+    const said = moves.map(([id, t]) => `${esc(C[id].code)} to ${esc(nameAt(t))}`);
+    toast(`Moved ${said.length > 1 ? `${said.slice(0, -1).join(', ')} and ${said[said.length - 1]}` : said[0]}.`);
   }
 
   // ---------------------------------------------------------------- reset
@@ -1528,21 +1658,18 @@
   // Spell out what a reset undoes; completions and added courses are the student's choice.
   function confirmReset() {
     if (P.own && !P.def.source) return confirmClear();
-    const marked = [...S.done].filter((id) => !S.fromTranscript.has(id) && !isMinorCard(id)).length;
     const added = Object.keys(S.custom).filter((id) => !isMinorCard(id)).length;
     const minorCards = Object.keys(S.custom).filter(isMinorCard).length;
     const keep = (id, text) => `<label class="rs-keep"><input type="checkbox" id="${id}" checked><span>${text}</span></label>`;
     openModal(`<h2 id="modalTitle">${P.own ? `Reset to ${esc(P.def.source)}?` : 'Reset to the suggested plan?'}</h2>` +
       `<p class="m-sub">Every course goes back to ${P.own ? 'the semester the file put it in' : 'its suggested semester'} and extra terms are removed. ` +
-      `Edited and deleted courses are restored${S.transcript ? ', and anything from an imported transcript is cleared' : ''}.` +
+      `Edited and deleted courses are restored, and every completed course is unchecked${S.transcript ? '. Anything from an imported transcript is cleared too' : ''}.` +
       `${addOnNames() ? ` The ${esc(addOnNames())}${minorCards ? ` and the ${minorCards} course${minorCards === 1 ? '' : 's'} added for ${S.minor && S.cert ? 'them' : 'it'}` : ''} ${minorCards || (S.minor && S.cert) ? 'are' : 'is'} removed.` : ''}</p>` +
-      (marked || added ? `<div class="rs-keeps">` +
-        (marked ? keep('rsKeepDone', `Keep my ${marked} completed course${marked === 1 ? '' : 's'} checked off`) : '') +
-        (added ? keep('rsKeepAdded', `Keep the ${added} course${added === 1 ? '' : 's'} I added`) : '') + `</div>` : '') +
+      (added ? `<div class="rs-keeps">${keep('rsKeepAdded', `Keep the ${added} course${added === 1 ? '' : 's'} I added`)}</div>` : '') +
       `<div class="m-actions"><button class="btn ghost" id="rsCancel">Cancel</button><button class="btn primary" id="rsOk">Reset plan</button></div>`);
     $('rsCancel').addEventListener('click', closeModal);
     $('rsOk').addEventListener('click', () => {
-      const opts = { keepDone: !$('rsKeepDone') || $('rsKeepDone').checked, keepAdded: !$('rsKeepAdded') || $('rsKeepAdded').checked };
+      const opts = { keepDone: false, keepAdded: !$('rsKeepAdded') || $('rsKeepAdded').checked };
       closeModal();
       revertToSuggested(opts);
     });
@@ -2224,7 +2351,8 @@
   // changes are saved like any other plan's.
   const OWN_IDS = ['mine-ut', 'mine'];
   const OWN_CATS = { major: 'Major courses', stem: 'Math and science', core: 'General education', tech: 'Electives' };
-  const ownKey = (id) => `dp.own.${id}`;
+  // An own plan's courses belong to the saved plan that holds them.
+  const ownKey = () => `dp.owndef.${currentPlanId}`;
   const isOwnId = (id) => OWN_IDS.includes(id);
 
   // Terms through at least year 4, so a file covering two years still leaves room to plan the rest.
@@ -2271,23 +2399,17 @@
     try { def = JSON.parse(localStorage.getItem(ownKey(id)) || 'null'); } catch (_) { /* ignore */ }
     return (FSP[id] = ownProgram(id, def || {}));
   }
-  // Starts a new own plan, replacing the saved one and its progress.
-  function startOwn(id, def) {
+  // Builds an own plan from a file. `asNew` makes it a new saved plan (from the welcome screen); otherwise the file
+  // replaces the open plan's courses and progress (from the dock).
+  function startOwn(id, def, { asNew = true } = {}) {
+    if (asNew || !currentPlan()) setCurrent(addPlanEntry(id, def.program || 'My plan').id);
     try {
       localStorage.setItem(ownKey(id), JSON.stringify(def));
-      localStorage.removeItem(`dp.plan.${id}`);
+      localStorage.removeItem(planKey());
     } catch (_) { /* storage unavailable: the plan still works until the page closes */ }
     FSP[id] = ownProgram(id, def);
     selectProgram(id);
-  }
-  // Courses in a saved own plan (for "you already have a plan" checks).
-  function ownCourseCount(id) {
-    try {
-      const saved = JSON.parse(localStorage.getItem(`dp.plan.${id}`) || 'null');
-      const def = JSON.parse(localStorage.getItem(ownKey(id)) || 'null');
-      if (saved && saved.plan) return saved.plan.flat().length;
-      return def && def.courses ? Object.keys(def.courses).length : 0;
-    } catch (_) { return 0; }
+    save();
   }
 
   // The school and major of a plan built from a file can be corrected later.
@@ -2310,13 +2432,44 @@
   const majorColleges = () => [...new Set(window.FS.order.map(collegeOf))];
   function fillProgramSelect() {
     $('programSelect').innerHTML = majorColleges().map((col) => `<optgroup label="${esc(col)}">` +
+      // A group (ECE) shows only its general plan; a concentration appears too while it is the open plan.
       window.FS.order.filter((o) => collegeOf(o) === col).map((o) => (o.group
-        ? o.ids.map((id) => `<option value="${id}">ECE: ${FSP[id].concentration}</option>`).join('')
+        ? o.ids.filter((id) => FSP[id].general || id === (P && P.id))
+          .map((id) => `<option value="${id}">${esc(FSP[id].general ? FSP[id].name : `ECE: ${FSP[id].concentration}`)}</option>`).join('')
         : `<option value="${o.id}">${esc(FSP[o.id].name)}</option>`)).join('') + `</optgroup>`).join('') +
-      `<optgroup label="Your own plan"><option value="mine-ut">${FSP['mine-ut'] && FSP['mine-ut'].def.source ? esc(`Built from ${FSP['mine-ut'].def.source}`) : 'Your own courses (no template)'}</option></optgroup>`;
+      // A plan built from a file shows here only while it is open; My plans opens the others.
+      (P && P.own ? `<optgroup label="Your own plan"><option value="${P.id}">${esc((currentPlan() && currentPlan().name) || 'My plan')}</option></optgroup>` : '');
     if (P) $('programSelect').value = P.id;
   }
-  $('programSelect').addEventListener('change', (ev) => selectProgram(ev.target.value));
+  $('programSelect').addEventListener('change', (ev) => switchMajor(ev.target.value));
+
+  // Opens a saved plan: its major (or its own courses) and its progress.
+  function openPlan(id) {
+    const entry = readPlans().find((p) => p.id === id);
+    if (!entry) return;
+    setCurrent(id);
+    if (isOwnId(entry.program)) delete FSP[entry.program]; // read this plan's own courses
+    selectProgram(entry.program);
+  }
+  // A new saved plan from a UT degree plan, laid out as suggested.
+  function newPlan(program) {
+    setCurrent(addPlanEntry(program, programName(FSP[program])).id);
+    selectProgram(program);
+    save();
+  }
+  // Choosing a major in the picker (or the profile) opens the student's latest plan for it, or starts one.
+  function switchMajor(program) {
+    if (program === P.id) return;
+    const latest = readPlans().filter((p) => p.program === program).sort((a, b) => b.updated - a.updated)[0];
+    if (latest) { openPlan(latest.id); toast(`Opened your plan \u201c${esc(latest.name)}\u201d.`); } else { newPlan(program); toast(`Started a new plan: ${esc(currentPlan().name)}.`); }
+  }
+  // The open plan's name, in the 4-Year Plan header.
+  function updatePlanName() {
+    const p = currentPlan();
+    $('planName').textContent = p ? p.name : '';
+    $('planName').title = p ? p.name : '';
+    $('planName').hidden = !p;
+  }
 
   function selectProgram(id, { remember = true } = {}) {
     P = isOwnId(id) ? (FSP[id] || loadOwn(id)) : (FSP[id] || FSP.che);
@@ -2338,6 +2491,7 @@
     $('brandMeta').textContent = P.own ? (P.def.source && P.def.program && P.def.school ? `${P.def.program}, from ${P.def.source}` : P.degree) : `${P.degree}, 2026-28 catalog: ${P.hours} hours`;
     loadPlan();
     buildLegend();
+    updatePlanName();
   }
 
   // The reminder on the board and in both PDFs that this is a planning tool, with where the plan should be confirmed.
@@ -2986,16 +3140,35 @@
       if (rp.hoursApplied) return `<span class="tagp maybe">${rp.hoursApplied} of ${rp.hoursRequired} hrs planned</span>`;
       return '<span class="tagp no">Still needed</span>';
     };
+    // A track's single required courses share one row of chips, not a row each.
+    const seqBody = (reqs) => {
+      let html = '', run = [];
+      const flush = () => { if (run.length) html += chips(run); run = []; };
+      for (const r of reqs) {
+        if (r.type === 'course' && !r.catalogText && !r.note) { run.push(...r.oneOf); continue; }
+        flush();
+        html += `${r.catalogText ? `<p>${esc(r.catalogText)}</p>` : ''}${optionsOf(r)}`;
+      }
+      flush();
+      return html;
+    };
     const optionsOf = (n) => {
       switch (n.type) {
         case 'course': return chips(n.oneOf);
         case 'choose': {
+          // Electives drawn from the lists above repeat none of them; the courses there count here too.
+          if (n.fromAbove) return '';
           const courses = n.options.flatMap((o) => o.courses || []);
-          return (courses.length ? chips(courses) : '') +
+          // Options the catalog groups under headings (themes, introductory or advanced coursework) keep those headings.
+          const named = [...new Set(n.options.filter((o) => o.courses && o.group).map((o) => o.group))];
+          const listed = named.length
+            ? named.map((g) => `<div class="mn-sub"><b>${esc(g)}</b>${chips(n.options.filter((o) => o.group === g).flatMap((o) => o.courses))}</div>`).join('')
+            : courses.length ? chips(courses) : '';
+          return listed +
             n.options.filter((o) => o.open).map((o) => `<p>${esc(o.open.catalogText || 'Any course matching this description')}</p>${openBox(o.open.filter, o.open.catalogText)}`).join('');
         }
         case 'distribution': return n.areas.map((a) => `<div class="mn-sub"><b>${esc(a.label)}</b>${chips(a.options.flatMap((o) => o.courses || []))}</div>`).join('');
-        case 'sequence': return n.sequences.map((s) => `<div class="mn-sub"><b>${esc(s.label)}</b>${s.requirements.map((r) => `${r.catalogText ? `<p>${esc(r.catalogText)}</p>` : ''}${optionsOf(r)}`).join('')}</div>`).join('');
+        case 'sequence': return n.sequences.map((s) => `<div class="mn-sub"><b>${esc(s.label)}</b>${seqBody(s.requirements)}</div>`).join('');
         case 'open': return openBox(n.filter, n.catalogText);
         case 'conditional': return n.then ? optionsOf(n.then) : '';
         default: return '';
@@ -3014,6 +3187,34 @@
         (n.note ? `<p>${esc(n.note)}</p>` : '') +
         (applied ? `<p>Counting: <b>${applied}</b></p>` : '') +
         options + warnings + `</div>`;
+    };
+
+    // Required courses in a row (unlabeled, or under the same catalog heading) share one block and one row of chips, so a minor never reads as a list.
+    const bare = (n) => n.type === 'course' && !n.label && !n.catalogText && !n.note;
+    const requiredBlock = (idx) => {
+      const ns = idx.map((i) => minor.requirements[i]);
+      const count = (res, ok) => idx.filter((i) => ok(res.requirements[i])).length;
+      const doneN = count(done, (r) => r && r.status === 'complete'), planN = count(planned, (r) => r.status === 'complete');
+      const tag = doneN === idx.length ? '<span class="tagp ok">Complete</span>'
+        : planN === idx.length ? '<span class="tagp ok">Planned</span>'
+        : planN ? `<span class="tagp maybe">${planN} of ${idx.length} planned</span>` : '<span class="tagp no">Still needed</span>';
+      const hrs = ns.reduce((h, n) => h + (n.hours || 0), 0);
+      warned = new Map();
+      const row = chips(ns.flatMap((n) => n.oneOf));
+      const warnings = [...warned].map(([id, need]) => `<p class="mn-warn">${ICON.alert}<span><b>${esc(C[id].code)}</b> needs ${esc(need.join('; '))}, which ${need.length === 1 ? 'isn\'t' : 'aren\'t'} in your four-year plan.</span></p>`).join('');
+      return `<div class="mn-req"><div class="mn-req-head"><h3>${esc(ns[0].area || 'Required courses')}<small>${hrs ? `${hrs} hrs` : ''}</small></h3>${tag}</div>` +
+        `<p>Take every course below${ns.some((n) => n.oneOf.length > 1) ? ' (or the listed alternative)' : ''}.</p>${row}${warnings}</div>`;
+    };
+    const reqBlocks = () => {
+      let html = '', run = [];
+      const flush = () => { html += run.length > 1 ? requiredBlock(run) : run.map((i) => reqBlock(minor.requirements[i], i)).join(''); run = []; };
+      minor.requirements.forEach((n, i) => {
+        if (!bare(n)) { flush(); html += reqBlock(n, i); return; }
+        if (run.length && (minor.requirements[run[0]].area || '') !== (n.area || '')) flush();
+        run.push(i);
+      });
+      flush();
+      return html;
     };
 
     const rule = (ok, text) => `<li class="${ok === true ? 'ok' : ok === false ? 'no' : 'info'}">${ok === true ? ICON.ok : ok === false ? ICON.x : ICON.info}<span>${text}</span></li>`;
@@ -3051,7 +3252,7 @@
         ? 'Click a course to add it: only that course is added, in the earliest semester that works. If it needs a prerequisite that isn\'t in your plan, you\'ll see a warning. '
         : `Add a course with <b>+</b>: it goes in the earliest semester that works, after any prerequisite that is part of this ${A.word} (that prerequisite is added too). `}` +
       `Click a ${A.color} course again to take it back out. Green courses are already in your plan and count toward the ${A.word} too.</p>` +
-      minor.requirements.map(reqBlock).join('') +
+      reqBlocks() +
       `<h3 class="mn-h">Rules</h3><ul class="mn-rules">${rules}</ul>` +
       (cautions.length ? `<div class="mn-box" style="margin-top:14px"><b>Check with the program:</b><ul>${cautions.map((c) => `<li>${esc(c)}</li>`).join('')}</ul></div>` : '') +
       `<div class="m-actions"><button class="btn ghost" id="mnRemove">Remove ${A.word}</button><button class="btn ghost" id="mnChange">Change ${A.word}</button><button class="btn primary" id="mnDone">Done</button></div></div>`);
@@ -3429,20 +3630,27 @@
     flowSmall: '<svg viewBox="0 0 24 24"><rect x="3" y="3.5" width="8" height="5.5" rx="1.6"/><rect x="13" y="15" width="8" height="5.5" rx="1.6"/><path d="M7 9v5.2a1.6 1.6 0 0 0 1.6 1.6H13"/></svg>',
     link: '<svg viewBox="0 0 24 24"><rect x="3" y="3.5" width="8" height="5.5" rx="1.6"/><rect x="13" y="15" width="8" height="5.5" rx="1.6"/><path d="M7 9v6.8h4" stroke-dasharray="1.8 2.2"/><path d="m16.6 4.2 3.2 3.2-6 6H10.6v-3.2Z"/></svg>',
     arrow: '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
+    gear: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M21.2 12h-2.6M5.4 12H2.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8M18.5 18.5l-1.8-1.8M7.3 7.3 5.5 5.5"/><circle cx="12" cy="12" r="6.6"/></svg>',
+    briefcase: '<svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2.2"/><path d="M8.5 7V5.5a1.5 1.5 0 0 1 1.5-1.5h4a1.5 1.5 0 0 1 1.5 1.5V7M3 12.5h18M10.5 12.5v1.5h3v-1.5"/></svg>',
   };
   const W = { trail: [], ownFor: null, after: null };
   const choice = (go, icon, title, text, extra = '') =>
-    `<button class="wc-choice" data-go="${go}"><span class="wc-ico">${icon}</span><span class="wc-copy"><strong>${title}</strong><span>${text}</span>${extra}</span><span class="wc-arrow">${WICON.arrow}</span></button>`;
+    `<button class="wc-choice" data-go="${go}"><span class="wc-ico">${icon}</span><span class="wc-copy"><strong>${title}</strong>${text ? `<span>${text}</span>` : ''}${extra}</span><span class="wc-arrow">${WICON.arrow}</span></button>`;
   const backBtn = () => `<button class="wc-back" data-back>${WICON.back}Back</button>`;
 
-  function showWelcome({ first = false, gradOnly = false } = {}) {
-    W.trail = []; W.step = null; W.chains = null; W.gradOnly = gradOnly;
-    $('wcClose').hidden = first;
+  // Opening FourSight starts on the profile until it is filled in; then the student loads a UT degree plan or uploads
+  // their own curriculum. `profileOnly` asks a returning student for a profile they haven't filled in, then closes.
+  function showWelcome({ first = false, profileOnly = false, step = null } = {}) {
+    W.trail = []; W.step = null; W.chains = null; W.profileOnly = profileOnly;
+    const needProfile = profileOnly || !profileComplete();
+    $('wcClose').hidden = first || needProfile;
     $('welcome').hidden = false;
     document.body.classList.add('welcoming');
     requestAnimationFrame(() => $('welcome').classList.add('open'));
-    wcGo(span ? 'school' : 'dates');
+    wcGo(needProfile ? 'profile' : step || 'start');
   }
+  // A profile is complete with a name, a valid school email and both semesters.
+  const profileComplete = () => !!span && !!readProfile().name && EMAIL_RE.test(fbDraft.email || '');
   function hideWelcome() {
     try { localStorage.setItem('dp.started', '1'); } catch (_) { /* ignore */ }
     $('welcome').classList.remove('open');
@@ -3508,7 +3716,7 @@
     openModal(`<h2 id="modalTitle">When do you start and finish?</h2><p class="m-sub">${SPAN_HELP}</p>${spanForm('Save')}`);
     wireSpanForm((sp) => { setSpan(sp, { keep: true }); closeModal(); });
   });
-  $('newPlanBtn').addEventListener('click', () => showWelcome());
+
   window.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape' && !$('welcome').hidden && !$('wcClose').hidden && $('modal').hidden) hideWelcome();
   });
@@ -3523,8 +3731,10 @@
     stage.classList.add(back ? 'in-back' : 'in');
     stage.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => wcChoose(b.dataset.go)));
     stage.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', wcBack));
-    if (step === 'dates') wireSpanForm((sp) => { setSpan(sp); if (W.gradOnly) hideWelcome(); else wcGo('school'); });
-    stage.querySelectorAll('[data-major]').forEach((b) => b.addEventListener('click', () => { hideWelcome(); selectProgram(b.dataset.major); }));
+    if (step === 'profile') wireWelcomeProfile();
+    if (step === 'plans') wirePlans();
+    if (step === 'account') wireAccount();
+    stage.querySelectorAll('[data-major]').forEach((b) => b.addEventListener('click', () => { hideWelcome(); newPlan(b.dataset.major); }));
     // Keyboard users start on the heading; the paste box and the details form take focus so they can type right away.
     const box = stage.querySelector('textarea, #dtForm input');
     if (box) box.focus({ preventScroll: true });
@@ -3537,31 +3747,19 @@
 
   function wcChoose(go) {
     switch (go) {
-      case 'ut': case 'other': case 'major': case 'paste': return wcGo(go);
-      case 'ut-blank': return startBlank('mine-ut');
-      case 'blank': return startBlank('mine');
-      case 'upload': return askReplace('mine', () => wcGo('chains'));
-      case 'chains-file': W.chains = 'file'; return pickCurriculum('mine');
-      case 'chains-self': W.chains = 'self'; return pickCurriculum('mine');
+      case 'major': return wcGo('college');
+      case 'new-plan': return wcGo('start');
+      case 'upload': return wcGo('chains');
+      case 'college-Engineering': case 'college-Business': W.college = go.slice(8); return wcGo('major');
+      case 'chains-file': W.chains = 'file'; return pickCurriculum('mine-ut');
+      case 'chains-self': W.chains = 'self'; return pickCurriculum('mine-ut');
       case 'pick-flowchart': return pickFlowchart();
       case 'skip-flowchart':
         P.def.chains = 'self'; saveOwnDef();
         hideWelcome(); return showCurriculumReport();
-      case 'open-own': hideWelcome(); return selectProgram(W.ownFor);
-      case 'replace': return W.after();
-      case 'retry': return pickCurriculum(W.ownFor || 'mine');
+      case 'retry': return pickCurriculum(W.ownFor || 'mine-ut');
       default: return null;
     }
-  }
-  // An own plan that already has courses is opened or replaced, never overwritten without asking.
-  function askReplace(id, then) {
-    const n = ownCourseCount(id);
-    if (!n) return then();
-    W.ownFor = id; W.after = then;
-    wcGo('existing', { data: { n, id } });
-  }
-  function startBlank(id) {
-    askReplace(id, () => { hideWelcome(); startOwn(id, {}); });
   }
 
   // ---- curriculum files
@@ -3646,11 +3844,11 @@
         },
       };
       // The student types the school and major before the plan is made.
-      const form = { kind: 'major' };
+      const form = { kind: 'major', school: id === 'mine-ut' ? 'The University of Texas at Austin' : '' };
       const finish = (schoolName, majorName) => {
         def.school = schoolName;
         def.program = majorName;
-        startOwn(id, def);
+        startOwn(id, def, { asNew: fromWelcome });
         // A student who chose to upload a flowchart adds it next.
         if (fromWelcome && W.chains === 'file') return wcGo('flowchart', { data: { count: r.count } });
         if (fromWelcome) hideWelcome();
@@ -3825,47 +4023,55 @@
   const PASTE_EXAMPLE = 'Fall Semester\nCHEM 1311   General Chemistry I   3\nMATH 2413   Calculus I   4\n\nSpring Semester\nMATH 2414   Calculus II   4   Prerequisite: MATH 2413';
 
   // ---- the steps
+  const WC_COLLEGES = [
+    { key: 'Engineering', name: 'Cockrell School of Engineering', icon: 'gear' },
+    { key: 'Business', name: 'McCombs School of Business', icon: 'briefcase' },
+  ];
   const WSTEPS = {
-    dates: () =>
-      `<p class="wc-kicker">Plan every semester in one view</p>` +
-      `<h1 id="wcTitle">When do you start and finish?</h1>` +
-      `<p class="wc-sub">${SPAN_HELP}</p>` + spanForm('Continue'),
-    school: () => (W.trail.length ? backBtn() : '') +
-      `<p class="wc-kicker">Plan every semester in one view</p>` +
-      `<h1 id="wcTitle">Do you attend the University of Texas at Austin?</h1>` +
-      `<div class="wc-choices">` +
-      choice('ut', WICON.tower, 'Yes, I’m at UT Austin', 'Start from your major’s degree plan, or build your own.') +
-      choice('other', WICON.globe, 'No, I go to another school', 'Bring your school’s curriculum, or start from scratch.') +
-      `</div>`,
-    ut: () => backBtn() +
+    profile: () => {
+      const prof = readProfile();
+      const field = (id, label, value, attrs = '') =>
+        `<label class="ac-field"><span>${label}</span><input id="${id}" maxlength="120" value="${esc(value || '')}" ${attrs}></label>`;
+      return `<p class="wc-kicker">Welcome to FourSight</p><h1 id="wcTitle">Set up your profile</h1>` +
+        `<p class="wc-sub">Tell FourSight who you are and when you start and finish. Everything here stays on this device.</p>` +
+        `<form id="wpForm" class="pf-form wc-profile" novalidate><div class="pf-grid">` +
+        field('wpName', 'Name', prof.name, 'autocomplete="name" required') +
+        field('wpEmail', 'School Email', fbDraft.email, 'type="email" autocomplete="email" required') +
+        field('wpAdvisor', 'Advisor Name <small>optional</small>', prof.advisor, 'autocomplete="off"') +
+        field('wpAdvisorEmail', 'Advisor Email <small>optional</small>', prof.advisorEmail, 'type="email" autocomplete="off"') +
+        `</div><h3 class="pf-h">Your semesters</h3>${spanRows()}<p class="ac-hint pf-hint">${SPAN_HELP}</p>` +
+        `<p class="ac-error" id="wpErr" hidden></p>` +
+        `<div class="wc-actions"><button class="btn primary wc-go" type="submit">Continue</button></div></form>`;
+    },
+    account: () => accountStep(),
+    plans: () =>
+      `<div class="pl-head"><div><p class="wc-kicker">Saved on this device</p><h1 id="wcTitle">My plans</h1></div>` +
+      `<button class="btn primary pl-new" data-go="new-plan">${ICON.plus}New plan</button></div>` +
+      `<p class="wc-sub">Each plan saves as you work. Open one to keep editing it, or start a new one from a UT degree plan or your own curriculum.</p>` +
+      `<ul class="pl-list" id="plList">${planRows()}</ul>`,
+    start: () => (W.trail.length ? backBtn() : '') +
       `<p class="wc-kicker">UT Austin</p><h1 id="wcTitle">How would you like to start?</h1>` +
       `<div class="wc-choices">` +
-      choice('major', WICON.template, 'Load a degree template', 'Your major’s suggested eight-semester plan, with every required course and prerequisite already in place.') +
-      choice('ut-blank', WICON.blank, 'Start with an empty plan', 'Eight empty semesters. Add your own courses and arrange them however you like.') +
-      `</div>`,
-    major: () => {
-      const saved = (id) => { try { return !!localStorage.getItem(`dp.plan.${id}`); } catch (_) { return false; } };
-      const tag = (id) => (saved(id) ? '<span class="wc-saved">Saved plan</span>' : '');
-      return backBtn() +
-        `<p class="wc-kicker">UT Austin · 2026–28 catalog</p><h1 id="wcTitle">Which degree are you pursuing?</h1>` +
-        majorColleges().map((col) => `<h2 class="wc-college">${esc(col)}</h2><div class="wc-majors">` + window.FS.order.filter((o) => collegeOf(o) === col).map((o) => (o.group
-          ? `<div class="wc-major wc-group"><strong>${esc(o.group)}</strong><small>${FSP[o.ids[0]].hours} hours · choose a concentration</small><div class="wc-concs">` +
-            o.ids.map((id) => `<button class="wc-conc" data-major="${id}">${esc(FSP[id].concentration)}${tag(id)}</button>`).join('') + `</div></div>`
-          : `<button class="wc-major" data-major="${o.id}"><strong>${esc(FSP[o.id].name)}</strong><small>${FSP[o.id].hours} hours</small>${tag(o.id)}</button>`)).join('') +
-        `</div>`).join('');
-    },
-    other: () => backBtn() +
-      `<p class="wc-kicker">Any college or university</p><h1 id="wcTitle">How would you like to start?</h1>` +
-      `<div class="wc-choices">` +
+      choice('major', WICON.template, 'Load a degree plan', 'Your major’s suggested eight-semester plan, with every required course and prerequisite already in place.') +
       choice('upload', WICON.upload, 'Upload your curriculum', 'A PDF, text or CSV file of your degree plan. FourSight reads it on this device and lays out your courses by semester.',
         '<em class="wc-drop">or drop the file anywhere on this page</em>') +
-      choice('blank', WICON.blank, 'Start with a blank plan', 'Eight empty semesters. Add each course with its number, name and credit hours.') +
-      `</div><button class="wc-link" data-go="paste">Or paste the text of your curriculum</button>`,
-    paste: () => backBtn() +
-      `<h1 id="wcTitle">Paste your curriculum</h1>` +
-      `<p class="wc-sub">Copy the course list from your degree plan. Semester headings like “Fall Semester” or “Year 2 Spring” help FourSight place each course.</p>` +
-      `<textarea class="wc-paste" id="wcPaste" spellcheck="false" placeholder="${esc(PASTE_EXAMPLE)}"></textarea>` +
-      `<div class="wc-actions"><button class="btn primary wc-go" id="wcPasteGo">Build my plan</button></div>`,
+      `</div>`,
+    // The UT colleges a degree plan can be loaded from. Only these two are offered for now; their majors follow.
+    college: () => backBtn() +
+      `<p class="wc-kicker">UT Austin · 2026–28 catalog</p><h1 id="wcTitle">Which college are you in?</h1>` +
+      `<div class="wc-choices">` +
+      WC_COLLEGES.map((c) => choice(`college-${c.key}`, WICON[c.icon], c.name, '')).join('') +
+      `</div>`,
+    major: () => {
+      const col = WC_COLLEGES.find((c) => c.key === W.college) || WC_COLLEGES[0];
+      return backBtn() +
+        `<p class="wc-kicker">${esc(col.name)} · 2026–28 catalog</p><h1 id="wcTitle">Which degree are you pursuing?</h1>` +
+        [col.key].map((key) => `<div class="wc-majors">` + window.FS.order.filter((o) => collegeOf(o) === key).map((o) => (o.group
+          ? `<div class="wc-major wc-group"><strong>${esc(o.group)}</strong><small>${FSP[o.ids[0]].hours} hours · choose a concentration</small><div class="wc-concs">` +
+            o.ids.map((id) => `<button class="wc-conc${FSP[id].general ? ' general' : ''}" data-major="${id}">${esc(FSP[id].general ? 'General plan (pick a concentration later)' : FSP[id].concentration)}</button>`).join('') + `</div></div>`
+          : `<button class="wc-major" data-major="${o.id}"><strong>${esc(FSP[o.id].name)}</strong><small>${FSP[o.id].hours} hours</small></button>`)).join('') +
+        `</div>`).join('');
+    },
     details: ({ count, source, form }) => backBtn() +
       `<p class="wc-kicker">About your degree</p><h1 id="wcTitle">Which school and major is this?</h1>` +
       `<p class="wc-sub">FourSight found ${count} course${count === 1 ? '' : 's'} in ${esc(source)}. Your school and major label your plan.</p>` +
@@ -3887,21 +4093,8 @@
       `<p class="wc-sub">${flowchart ? 'Finding which courses lead to which' : 'Finding courses, credit hours, prerequisites and semesters'}. Nothing leaves your device.</p></div>`,
     failed: ({ msg }) => backBtn() +
       `<h1 id="wcTitle">That file didn’t work</h1><p class="wc-sub">${esc(msg)}</p>` +
-      `<div class="wc-actions"><button class="btn" data-go="paste">Paste text instead</button><button class="btn" data-go="blank">Start with a blank plan</button>` +
-      `<button class="btn primary wc-go" data-go="retry">Choose another file</button></div>`,
-    existing: ({ n, id }) => backBtn() +
-      `<h1 id="wcTitle">You already have a plan here</h1>` +
-      `<p class="wc-sub">Your saved ${id === 'mine-ut' ? 'UT ' : ''}plan has ${n} course${n === 1 ? '' : 's'}` +
-      `${FSP[id] && FSP[id].def && FSP[id].def.source ? ` from ${esc(FSP[id].def.source)}` : ''}. Starting over replaces it, including its check-offs.</p>` +
-      `<div class="wc-actions"><button class="btn" data-go="replace">Start over</button><button class="btn primary wc-go" data-go="open-own">Open my saved plan</button></div>`,
+      `<div class="wc-actions"><button class="btn primary wc-go" data-go="retry">Choose another file</button></div>`,
   };
-  // The paste step's button is wired here because it reads the textarea.
-  $('wcStage').addEventListener('click', (ev) => {
-    if (ev.target.closest('#wcPasteGo')) {
-      const text = $('wcPaste').value;
-      if (text.trim()) askReplace('mine', () => importCurriculum(text, 'mine'));
-    }
-  });
   // Dropping a file on the welcome screen uploads it as a curriculum.
   $('welcome').addEventListener('dragover', (ev) => { ev.preventDefault(); $('welcome').classList.add('drop'); });
   $('welcome').addEventListener('dragleave', (ev) => { if (ev.target === $('welcome')) $('welcome').classList.remove('drop'); });
@@ -3910,8 +4103,8 @@
     const file = ev.dataTransfer.files[0];
     if (!file) return;
     if (W.step === 'flowchart') return importFlowchart(file);
-    const id = W.step === 'ut' || W.step === 'major' ? 'mine-ut' : 'mine';
-    askReplace(id, () => importCurriculum(file, id));
+    if (W.step === 'profile') return; // the profile comes first
+    importCurriculum(file, 'mine-ut');
   });
 
   // ---------------------------------------------------------------- PDF downloads
@@ -4450,6 +4643,130 @@
   }
   $('feedbackBtn').addEventListener('click', showFeedback);
 
+  // ---------------------------------------------------------------- my plans
+  // Every saved plan: open, rename, duplicate or delete it, or start a new one. Plans save themselves as the
+  // student works; nothing here needs a Save button.
+  function migratePlans() {
+    try { if (localStorage.getItem('dp.plans') !== null) return; } catch (_) { return; }
+    const list = [], now = Date.now();
+    let current = null, last = null;
+    try { last = localStorage.getItem('dp.program'); } catch (_) { /* ignore */ }
+    for (const program of [...Object.keys(FSP).filter((id) => !isOwnId(id)), ...OWN_IDS]) {
+      try {
+        let raw = localStorage.getItem(`dp.plan.${program}`);
+        if (!raw && program === 'che') raw = localStorage.getItem('dp.plan.me');
+        const def = isOwnId(program) ? localStorage.getItem(`dp.own.${program}`) : null;
+        if (!raw && !def) continue;
+        const id = newPlanId() + list.length;
+        const st = JSON.parse(raw || 'null'), d = JSON.parse(def || 'null') || {};
+        // Optional courses don't count, as when a plan is saved.
+        const optional = (cid) => !!(FSP[program] && FSP[program].courses && FSP[program].courses[cid] && FSP[program].courses[cid].optional);
+        let courses = st && Array.isArray(st.plan) ? st.plan.flat().filter((cid) => !optional(cid)).length : 0;
+        if (!courses && d.courses) courses = Object.keys(d.courses).length;
+        const name = isOwnId(program) ? (d.program || (d.source ? `Built from ${d.source}` : 'My own plan')) : programName(FSP[program]);
+        if (raw) localStorage.setItem(`dp.saved.${id}`, raw);
+        if (def) localStorage.setItem(`dp.owndef.${id}`, def);
+        list.push({ id, name: uniqueName(name, list), program, created: now, updated: now, courses });
+        if (program === last) current = id;
+      } catch (_) { /* skip a plan that can't be read */ }
+    }
+    writePlans(list);
+    setCurrent(current || (list[0] && list[0].id) || null);
+  }
+
+  function deletePlan(id) {
+    const list = readPlans().filter((p) => p.id !== id);
+    writePlans(list);
+    try { localStorage.removeItem(`dp.saved.${id}`); localStorage.removeItem(`dp.owndef.${id}`); } catch (_) { /* ignore */ }
+    if (id !== currentPlanId) return;
+    setCurrent(null);
+    const next = list.sort((a, b) => b.updated - a.updated)[0];
+    if (next) openPlan(next.id);
+  }
+  function duplicatePlan(id) {
+    if (id === currentPlanId) save();
+    const src = readPlans().find((p) => p.id === id);
+    if (!src) return;
+    const copy = addPlanEntry(src.program, `Copy of ${src.name}`);
+    try {
+      for (const k of ['saved', 'owndef']) {
+        const v = localStorage.getItem(`dp.${k}.${id}`);
+        if (v !== null) localStorage.setItem(`dp.${k}.${copy.id}`, v);
+      }
+    } catch (_) { /* ignore */ }
+    const list = readPlans(), e = list.find((p) => p.id === copy.id);
+    e.courses = src.courses;
+    writePlans(list);
+  }
+  function renamePlan(id, name) {
+    const list = readPlans(), e = list.find((p) => p.id === id);
+    if (!e) return;
+    e.name = uniqueName(name, list, id);
+    writePlans(list);
+    updatePlanName();
+    if (P.own && id === currentPlanId) fillProgramSelect();
+  }
+
+  // My plans is a screen of its own (on the welcome stage): every saved plan, and New plan, which goes to the
+  // starting choices and back.
+  function showPlans() {
+    showWelcome({ step: 'plans' });
+  }
+  const planWhen = (t) => new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const planMajor = (p) => (isOwnId(p.program) ? 'Uploaded curriculum' : FSP[p.program] ? programName(FSP[p.program]) : 'Degree plan');
+  function planRows() {
+    const list = readPlans().sort((a, b) => (b.id === currentPlanId) - (a.id === currentPlanId) || b.updated - a.updated);
+    if (!list.length) return '<li class="pl-empty">No saved plans yet. Start one with New plan.</li>';
+    return list.map((p) => `<li class="pl-row${p.id === currentPlanId ? ' current' : ''}" data-id="${p.id}">` +
+      `<div class="pl-main"><strong class="pl-name">${esc(p.name)}</strong>${p.id === currentPlanId ? '<span class="pl-cur">Open now</span>' : ''}` +
+      `<span class="pl-meta">${esc(planMajor(p))} \u00b7 ${p.courses} course${p.courses === 1 ? '' : 's'} \u00b7 Edited ${planWhen(p.updated)}</span></div>` +
+      `<div class="pl-actions">` +
+      (p.id === currentPlanId ? `<button class="btn" data-act="open">Back to plan</button>` : `<button class="btn primary" data-act="open">Open</button>`) +
+      `<button class="btn" data-act="rename">Rename</button><button class="btn" data-act="copy">Duplicate</button>` +
+      `<button class="btn pl-del" data-act="delete" aria-label="Delete ${esc(p.name)}" title="Delete">${ICON.trash}</button></div></li>`).join('');
+  }
+  function wirePlans() {
+    const list = $('plList');
+    const render = () => { list.innerHTML = planRows(); };
+    list.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-act]'), li = ev.target.closest('.pl-row');
+      if (!b || !li) return;
+      const id = li.dataset.id, p = readPlans().find((x) => x.id === id);
+      if (!p) return;
+      switch (b.dataset.act) {
+        case 'open':
+          hideWelcome();
+          if (id !== currentPlanId) { openPlan(id); toast(`Opened \u201c${esc(p.name)}\u201d.`); }
+          break;
+        case 'copy': duplicatePlan(id); render(); toast(`Made \u201c${esc(`Copy of ${p.name}`)}\u201d.`); break;
+        case 'rename':
+          li.querySelector('.pl-main').innerHTML = `<form class="pl-rename"><input maxlength="80" value="${esc(p.name)}" aria-label="Plan name">` +
+            `<button class="btn primary" type="submit">Save</button><button class="btn ghost" type="button" data-act="cancel">Cancel</button></form>`;
+          li.querySelector('.pl-actions').hidden = true;
+          li.querySelector('input').select();
+          li.querySelector('form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const name = tidyLabel(li.querySelector('input').value);
+            if (name) renamePlan(id, name);
+            render();
+          });
+          break;
+        case 'cancel': render(); break;
+        case 'delete':
+          li.querySelector('.pl-actions').innerHTML = `<span class="pl-confirm">Delete this plan? This can\u2019t be undone.</span>` +
+            `<button class="btn ghost" data-act="cancel">Cancel</button><button class="btn pl-del-go" data-act="really-delete">Delete</button>`;
+          break;
+        case 'really-delete':
+          deletePlan(id);
+          toast(`Deleted \u201c${esc(p.name)}\u201d.`);
+          if (!readPlans().length) { W.trail = []; $('wcClose').hidden = true; wcGo('start'); break; } // nothing left: start a new one
+          render();
+          break;
+        default: break;
+      }
+    });
+  }
+
   // ---------------------------------------------------------------- boot
   // ---------------------------------------------------------------- settings and profile
   const settingsMenu = $('settingsMenu');
@@ -4462,6 +4779,7 @@
   window.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape' && settingsMenu.classList.contains('open')) { setSettingsMenu(false); $('settingsBtn').focus(); }
   });
+  $('plansBtn').addEventListener('click', () => { setSettingsMenu(false); showPlans(); });
   $('profileBtn').addEventListener('click', () => { setSettingsMenu(false); showProfile(); });
   $('colorsBtn').addEventListener('click', () => { setSettingsMenu(false); showColors(); });
 
@@ -4470,33 +4788,38 @@
   // student elsewhere types them, as on the screen that names an uploaded plan.
   const readProfile = () => { try { return JSON.parse(localStorage.getItem('dp.profile') || '{}') || {}; } catch (_) { return {}; } };
   const OWN_COLLEGE = 'own';
-  function showProfile() {
+  // Settings > Profile opens on the full welcome screen, like My plans, with the close button to get back to the plan.
+  function showProfile() { showWelcome({ step: 'account' }); }
+  function accountStep() {
     const prof = readProfile(), ut = !P.own || P.ut;
     const field = (id, label, value, attrs = '') => `<label class="ac-field"><span>${label}</span><input id="${id}" maxlength="120" value="${esc(value || '')}" ${attrs}></label>`;
     const college = P.own ? OWN_COLLEGE : FSP[P.id].college || 'Engineering';
-    const collegeOptions = [...majorColleges().map((c) => [c, c]), [OWN_COLLEGE, 'My college isn\'t listed']]
+    const collegeOptions = [...majorColleges().map((c) => [c, c]), ...(P.own ? [[OWN_COLLEGE, 'My own plan']] : [])]
       .map(([v, l]) => `<option value="${esc(v)}"${v === college ? ' selected' : ''}>${esc(l)}</option>`).join('');
-    openModal(`<h2 id="modalTitle">Profile</h2><p class="m-sub">Everything here stays on this device.</p>` +
+    return `<p class="wc-kicker">Settings</p><h1 id="wcTitle">Profile</h1><p class="wc-sub">Everything here stays on this device.</p>` +
       `<form id="pfForm" class="pf-form" novalidate>` +
       `<h3 class="pf-h">About you</h3><div class="pf-grid">` +
-      field('pfName', 'Name', prof.name, 'autocomplete="name"') +
-      field('pfEmail', 'School Email', fbDraft.email, 'type="email" autocomplete="email"') +
-      field('pfAdvisor', 'Advisor Name', prof.advisor, 'autocomplete="off"') +
-      field('pfAdvisorEmail', 'Advisor Email', prof.advisorEmail, 'type="email" autocomplete="off"') +
+      field('pfName', 'Name', prof.name, 'autocomplete="name" required') +
+      field('pfEmail', 'School Email', fbDraft.email, 'type="email" autocomplete="email" required') +
+      field('pfAdvisor', 'Advisor Name <small>optional</small>', prof.advisor, 'autocomplete="off"') +
+      field('pfAdvisorEmail', 'Advisor Email <small>optional</small>', prof.advisorEmail, 'type="email" autocomplete="off"') +
       `</div><h3 class="pf-h">Your semesters</h3>${spanRows()}` +
       `<h3 class="pf-h">Your degree</h3>` +
       (ut
         ? `<div class="pf-grid"><label class="ac-field"><span>College</span><select id="pfCollege">${collegeOptions}</select></label>` +
           `<label class="ac-field"><span>Major</span><select id="pfMajor"></select></label></div>` +
-          `<p class="ac-hint pf-hint">Each major keeps its own saved plan, so you can switch back. At another school? Use New plan.</p>`
+          `<p class="ac-hint pf-hint">Changing your major opens your latest plan for it, or starts one. My plans has all of them.</p>`
         : `<div class="pf-grid">${field('pfSchool', 'College or University', P.def.school, 'autocomplete="off"')}${field('pfProgram', 'Major', P.def.program, 'autocomplete="off"')}</div>` +
-          `<p class="ac-hint pf-hint">At UT Austin? Use New plan.</p>`) +
+          '') +
       `<p class="ac-error" id="pfErr" hidden></p>` +
-      `<div class="m-actions"><button type="button" class="btn ghost" id="pfCancel">Cancel</button><button type="submit" class="btn primary">Save</button></div></form>`);
+      `<div class="wc-actions"><button type="button" class="btn ghost" id="pfCancel">Cancel</button><button type="submit" class="btn primary">Save</button></div></form>`;
+  }
+  function wireAccount() {
+    const ut = !P.own || P.ut;
     const fillMajors = () => {
       const col = $('pfCollege').value;
       if (col === OWN_COLLEGE) {
-        $('pfMajor').innerHTML = `<option value="mine-ut">${esc(FSP['mine-ut'] && FSP['mine-ut'].def.source ? `Built from ${FSP['mine-ut'].def.source}` : 'Your own courses (no template)')}</option>`;
+        $('pfMajor').innerHTML = `<option value="${P.id}">${esc((currentPlan() && currentPlan().name) || 'My plan')}</option>`;
         return;
       }
       const ids = window.FS.order.filter((o) => collegeOf(o) === col).flatMap((o) => (o.group ? o.ids : [o.id]));
@@ -4504,31 +4827,30 @@
         ids.map((id) => `<option value="${id}"${id === P.id ? ' selected' : ''}>${esc(FSP[id].concentration ? `ECE: ${FSP[id].concentration}` : FSP[id].name)}</option>`).join('');
     };
     if (ut) { fillMajors(); $('pfCollege').addEventListener('change', fillMajors); }
-    $('pfCancel').addEventListener('click', closeModal);
+    $('pfCancel').addEventListener('click', hideWelcome);
     $('pfForm').addEventListener('input', () => { $('pfErr').hidden = true; });
     $('pfForm').addEventListener('submit', (ev) => {
       ev.preventDefault();
       const fail = (msg, el) => { $('pfErr').textContent = msg; $('pfErr').hidden = false; if (el) el.focus(); };
       const value = (id) => $(id).value.trim();
       const email = value('pfEmail'), advisorEmail = value('pfAdvisorEmail');
-      if (email && !EMAIL_RE.test(email)) return fail('Enter a valid school email, or leave it blank.', $('pfEmail'));
+      if (!value('pfName')) return fail('Enter your name.', $('pfName'));
+      if (!EMAIL_RE.test(email)) return fail(email ? 'Enter a valid school email.' : 'Enter your school email.', $('pfEmail'));
       if (advisorEmail && !EMAIL_RE.test(advisorEmail)) return fail('Enter a valid advisor email, or leave it blank.', $('pfAdvisorEmail'));
       const sp = readSpan();
-      // Semesters can only be left blank by a student who hasn't set them yet.
-      const blankSpan = !span && !(sp.start.kind || sp.start.year || sp.end.kind || sp.end.year);
-      if (!blankSpan && !spanOk(sp)) return fail(spanFilled(sp.start) && spanFilled(sp.end) ? 'Your last semester has to come after your first.' : 'Choose your first and last semesters.', $('spStartKind'));
+      if (!spanOk(sp)) return fail(spanFilled(sp.start) && spanFilled(sp.end) ? 'Your last semester has to come after your first.' : 'Choose your first and last semesters.', $('spStartKind'));
       const major = ut ? $('pfMajor').value : '';
       if (ut && !major) return fail('Choose your major.', $('pfMajor'));
       const school = ut ? '' : tidyLabel($('pfSchool').value), program = ut ? '' : tidyLabel($('pfProgram').value);
       if (!ut && P.def.source && (!school || !program)) return fail('Enter your college or university and your major.', !school ? $('pfSchool') : $('pfProgram'));
       try {
         localStorage.setItem('dp.profile', JSON.stringify({ name: value('pfName'), advisor: value('pfAdvisor'), advisorEmail }));
-        if (email) localStorage.setItem('dp.feedbackEmail', email); else localStorage.removeItem('dp.feedbackEmail');
+        localStorage.setItem('dp.feedbackEmail', email);
       } catch (_) { /* ignore */ }
       fbDraft.email = email;
-      closeModal();
+      hideWelcome();
       if (spanOk(sp) && JSON.stringify(sp) !== JSON.stringify(span)) setSpan(sp, { keep: true });
-      if (ut && major !== P.id) selectProgram(major);
+      if (ut && major !== P.id) switchMajor(major);
       if (!ut && (school !== (P.def.school || '') || program !== (P.def.program || ''))) {
         P.def.school = school;
         P.def.program = program;
@@ -4540,16 +4862,45 @@
     });
   }
 
+  // The welcome screen's profile: name, school email and semesters are required; the advisor is optional.
+  function wireWelcomeProfile() {
+    const form = $('wpForm');
+    const fail = (msg, el) => { $('wpErr').textContent = msg; $('wpErr').hidden = false; if (el) el.focus(); };
+    form.addEventListener('input', () => { $('wpErr').hidden = true; });
+    form.addEventListener('change', () => { $('wpErr').hidden = true; });
+    $('wpName').focus({ preventScroll: true });
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      const value = (id) => $(id).value.trim();
+      const name = value('wpName'), email = value('wpEmail'), advisorEmail = value('wpAdvisorEmail');
+      if (!name) return fail('Enter your name.', $('wpName'));
+      if (!EMAIL_RE.test(email)) return fail(email ? 'Enter a valid school email.' : 'Enter your school email.', $('wpEmail'));
+      if (advisorEmail && !EMAIL_RE.test(advisorEmail)) return fail('Enter a valid advisor email, or leave it blank.', $('wpAdvisorEmail'));
+      const sp = readSpan();
+      if (!spanOk(sp)) return fail(spanFilled(sp.start) && spanFilled(sp.end) ? 'Your last semester has to come after your first.' : 'Choose your first and last semesters.', $('spStartKind'));
+      try {
+        localStorage.setItem('dp.profile', JSON.stringify({ ...readProfile(), name, advisor: value('wpAdvisor'), advisorEmail }));
+        localStorage.setItem('dp.feedbackEmail', email);
+      } catch (_) { /* ignore */ }
+      fbDraft.email = email;
+      if (JSON.stringify(sp) !== JSON.stringify(span)) setSpan(sp);
+      if (W.profileOnly) hideWelcome(); else wcGo('start');
+    });
+  }
+
   // Until a student has answered the welcome questions once, opening FourSight starts on them, over ChE. A student
   // who saved a plan before the welcome screen existed (Version 1) sees it too, and can close it to return to that
   // plan; it is only remembered once they pick a starting point or close it.
   let startProgram = null, started = false;
   try { startProgram = localStorage.getItem('dp.program'); started = !!localStorage.getItem('dp.started'); } catch (_) { /* ignore */ }
-  selectProgram(startProgram || 'che', { remember: !!startProgram });
+  migratePlans();
+  if (currentPlan()) openPlan(currentPlanId);
+  else { setCurrent(null); selectProgram(startProgram || 'che', { remember: !!startProgram }); }
   if (!started) showWelcome({ first: !startProgram });
-  else if (!span) showWelcome({ gradOnly: true }); // a student from before this question: asked until answered
+  else if (!profileComplete()) showWelcome({ profileOnly: true }); // a student from before the profile: asked until it is filled in
+  else if (!readPlans().length) showWelcome({ first: true }); // every plan was deleted: start a new one
 
   // Debug handle for testing.
-  window.__dp = { setView, renderAudit, setSpan, showFeedback, planPdf, chainsPdf, importText, revertToSuggested, showWelcome, importCurriculum, startOwn, selectProgram, S, analyze, EDGES, ALL_EDGES, edgeBroken, rectOf, scroller, toggleDone, addSummer, addRegular, removeTerm, lateFrom,
+  window.__dp = { planFixes, fixConflict, showPlans, readPlans, openPlan, deletePlan, setView, renderAudit, setSpan, showFeedback, planPdf, chainsPdf, importText, revertToSuggested, showWelcome, importCurriculum, startOwn, selectProgram, S, analyze, EDGES, ALL_EDGES, edgeBroken, rectOf, scroller, toggleDone, addSummer, addRegular, removeTerm, lateFrom,
     toggleTerm, minors: { removeCard: removeMinorCard, load: loadMinors, choose: chooseMinor, request: requestMinorCourse, add: addMinorCourses, prereqPlan, planIdFor, remove: removeMinor, data: () => MN } };
 })();

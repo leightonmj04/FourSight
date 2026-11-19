@@ -45,7 +45,7 @@ FS.define({
     PHY105N:  { code: 'PHY 105N', title: 'Lab for PHY 303L', hrs: 1, cat: 'stem', pre: ['PHY105M'], co: ['PHY303L'], latest: 3 },
     CH328N:   { code: 'CH 328N', title: 'Organic Chemistry II', hrs: 3, cat: 'stem', pre: ['CH328M'], latest: 7 },
     CH128L:   { code: 'CH 128L', title: 'Organic Chemistry Lab II', hrs: 1, cat: 'stem', pre: ['CH128K'], co: ['CH328N'], latest: 7 },
-    CH353:    { code: 'CH 353', title: 'Physical Chemistry I', hrs: 3, cat: 'stem', pre: ['M408D', 'CH302', 'PHY303L', 'PHY105N'], latest: 4 },
+    CH353:    { code: 'CH 353', title: 'Physical Chemistry I', hrs: 3, cat: 'stem', pre: ['M408D', 'CH302', 'PHY303K', 'PHY105M'], latest: 4 },
     M427L:    { code: 'M 427L', title: 'Advanced Calculus for Applications II', hrs: 4, cat: 'stem', pre: ['M408D'], latest: 7 },
     CH153K:   { code: 'CH 153K', title: 'Physical Chemistry Laboratory', hrs: 1, cat: 'stem', pre: ['CH353'], latest: 7 },
 

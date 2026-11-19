@@ -12,12 +12,15 @@
   // Degree core shared by all eight concentrations. `labs` are the core lab(s) in a concentration.
   function core(labs) {
     return {
-      ...P('M408C', 'M408D', 'M427J', 'PHY303K', 'PHY105M', 'PHY303L', 'PHY105N', 'RHE306', 'M340L'),
+      ...P('M408C', 'M408D', 'M427J', 'PHY303K', 'PHY105M', 'RHE306', 'M340L'),
+      // The 2026-28 catalog replaces PHY 303L and PHY 105N with PHY 303E.
+      PHY303E: { code: 'PHY 303E', title: 'Electromagnetic, Quantum, and Semiconductor Physics', hrs: 3, cat: 'stem', pre: ['ECE302', 'PHY303K', 'PHY105M'], co: ['M408D'],
+                 note: 'Needs ECE 302 (or 302H) and PHY 303K with PHY 103M or 105M, each with a C- or better; M 408D (or 408M) can be taken the same semester.' },
       ECE302:  { code: 'ECE 302',  title: 'Introduction to Electrical Engineering', hrs: 3, cat: 'major', co: ['M408C'], alias: ['ECE 302H'],
                  note: 'ECE 302H also counts. ECE 302 counts toward Natural Science and Technology, Part II (093).' },
       ECE306:  { code: 'ECE 306',  title: 'Introduction to Computing', hrs: 3, cat: 'major', co: ['M408C'] },
       ECE319K: { code: 'ECE 319K', title: 'Introduction to Embedded Systems', hrs: 3, cat: 'major', pre: ['ECE306'], alias: ['ECE 319H'] },
-      ECE411:  { code: 'ECE 411',  title: 'Circuit Theory', hrs: 4, cat: 'major', pre: ['ECE302'], co: ['M427J', 'PHY303L', 'PHY105N'] },
+      ECE411:  { code: 'ECE 411',  title: 'Circuit Theory', hrs: 4, cat: 'major', pre: ['ECE302'], co: ['M427J', 'PHY303E'] },
       ECE312:  { code: 'ECE 312',  title: 'Software Design and Implementation I', hrs: 3, cat: 'major', pre: ['ECE306', 'ECE319K'], alias: ['ECE 312H'] },
       ECE313:  { code: 'ECE 313',  title: 'Linear Systems and Signals', hrs: 3, cat: 'major', pre: ['ECE302', 'M427J'], co: ['M340L'] },
       ECE333T: { code: 'ECE 333T', title: 'Engineering Communication', hrs: 3, cat: 'major', pre: ['RHE306', 'ECE319K', ['ECE312', 'ECE313']],
@@ -37,7 +40,8 @@
                  note: 'The ECE department lists 11 free-elective hours and 27 remaining core hours for 2026-28, but four concentration pages in the catalog still show 14 free and 24 core hours. This slot covers the 3-hour difference; confirm which applies to you with ECE advising.' },
 
       ...FS.slots('FREE', 3, { code: 'Free Elective', title: 'Free elective', hrs: 3, cat: 'tech', note: FREE_NOTE }),
-      FREE4:   { code: 'Free Elective', title: 'Free elective', hrs: 2, cat: 'tech', note: FREE_NOTE },
+      FREE4:   { code: 'Free Elective', title: 'Free elective', hrs: 3, cat: 'tech',
+                 note: `${FREE_NOTE} This slot is 3 hours here instead of 2: PHY 303E (3 hours) replaced PHY 303L and PHY 105N (4 hours), and FourSight keeps the degree at 125 hours. Confirm the 2026-28 hour split with ECE advising.` },
     };
   }
   const FREE_NOTE = 'Eleven free-elective hours in all. They must include at least one 3-hour advanced math or basic science course, with no more than 3 lower-division hours, all counting toward a major in the offering department, taken in residence (up to 3 transfer hours with approval), and no duplicates.';
@@ -55,10 +59,10 @@
     ECE351M: ece('ECE 351M', 'Digital Signal Processing', 3, { pre: ['ECE313'], co: ['ECE351K'] }),
     ECE422C: ece('ECE 422C', 'Software Design and Implementation II', 4, { pre: ['ECE312'] }),
     ECE461L: ece('ECE 461L', 'Software Engineering and Design Laboratory', 4, { pre: ['ECE422C', 'M325K'], co: ['ECE333T'] }),
-    ECE325:  ece('ECE 325',  'Electromagnetic Engineering', 3, { pre: ['ECE411', 'M427J', 'PHY303L', 'PHY105N'], co: ['M427L'] }),
-    ECE339:  ece('ECE 339',  'Solid-State Electronic Devices', 3, { pre: ['M427J', 'PHY303L', 'PHY105N'] }),
+    ECE325:  ece('ECE 325',  'Electromagnetic Engineering', 3, { pre: ['ECE411', 'M427J', 'PHY303E'], co: ['M427L'] }),
+    ECE339:  ece('ECE 339',  'Solid-State Electronic Devices', 3, { pre: ['M427J', 'PHY303E'] }),
     ECE438:  ece('ECE 438',  'Fundamentals of Electronic Circuits I Laboratory', 4, { pre: ['ECE411'], co: ['ECE333T'] }),
-    ECE440:  ece('ECE 440',  'Integrated Circuit Nanomanufacturing Techniques', 4, { pre: ['M427J', 'PHY303L', 'PHY105N'], co: ['ECE333T'] }),
+    ECE440:  ece('ECE 440',  'Integrated Circuit Nanomanufacturing Techniques', 4, { pre: ['M427J', 'PHY303E'], co: ['ECE333T'] }),
     ECE362K: ece('ECE 362K', 'Introduction to Automatic Control', 3, { pre: ['ECE313', 'M340L'], note: 'Also needs upper-division standing.' }),
   };
   const pick = (...ids) => Object.fromEntries(ids.map((id) => [id, FS.clone(C[id])]));
@@ -83,7 +87,9 @@
     { label: '2026-28 flowchart', url: 'https://utexas.box.com/s/tqiylly5fehaapl4nebza8v0shgwpzlz' },
   ];
 
+  const ALL_OPTIONS = new Set();
   function concentration({ id, name, short, slug, plan, labs, courses, options, n, critical }) {
+    options.forEach((o) => ALL_OPTIONS.add(o));
     FS.define({
       id: `ece-${id}`,
       group: 'Electrical and Computer Engineering',
@@ -109,7 +115,7 @@
     plan: [
       ['M408C', 'ECE302', 'ECE306', 'RHE306', 'UGS'],
       ['M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L', 'ECE316'],
-      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'E316'],
+      ['M427J', 'PHY303E', 'ECE411', 'E316'],
       ['ECE312', 'ECE313', 'M325K', 'SBS', 'CORE9'],
       ['GOV310L', 'ECE351K', 'ECE333T', 'FREE1', 'GOV312'],
       ['ECE445L', 'ECE364D', 'CHOICE3', 'USHIST', 'FREE4'],
@@ -126,7 +132,7 @@
     plan: [
       ['M408C', 'ECE302', 'ECE306', 'UGS', 'CORE9'],
       ['RHE306', 'M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L'],
-      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'VAPA'],
+      ['M427J', 'PHY303E', 'ECE411', 'VAPA'],
       ['ECE312', 'ECE313', 'M325K', 'AMHIST', 'GOV312'],
       ['ECE351K', 'ECE333T', 'CHOICE1', 'CHOICE2', 'USHIST'],
       ['ECE461P', 'ECE360C', 'ADVTECH', 'FREE2', 'SBS'],
@@ -143,7 +149,7 @@
     plan: [
       ['M408C', 'ECE302', 'ECE306', 'UGS', 'GOV310L'],
       ['RHE306', 'M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L'],
-      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'AMHIST'],
+      ['M427J', 'PHY303E', 'ECE411', 'AMHIST'],
       ['ECE312', 'ECE313', 'M325K', 'USHIST', 'CORE9'],
       ['ECE351K', 'ECE422C', 'FREE1', 'GOV312', 'FREE2'],
       ['ECE333T', 'ECE461L', 'VAPA', 'CHOICE2', 'ADVTECH'],
@@ -158,7 +164,7 @@
     courses: {
       ...pick('M427L'),
       CSP325:  ece('ECE 325 or 351M', 'Electromagnetic Engineering or Digital Signal Processing', 3, {
-        pre: ['ECE411', 'M427J', 'PHY303L', 'PHY105N'], co: ['M427L'], alias: ['ECE 325', 'ECE 351M'],
+        pre: ['ECE411', 'M427J', 'PHY303E'], co: ['M427L'], alias: ['ECE 325', 'ECE 351M'],
         note: 'Prerequisites shown are for ECE 325. ECE 351M needs ECE 313, with ECE 351K completed or concurrent.' }),
       CSP362K: ece('ECE 362K, 371Q or 360K', 'Automatic Control, Digital Image Processing or Digital Communications', 3, {
         pre: ['ECE313', 'M340L'], alias: ['ECE 362K', 'ECE 371Q', 'ECE 360K'],
@@ -171,7 +177,7 @@
     plan: [
       ['M408C', 'ECE302', 'ECE306', 'UGS', 'USHIST'],
       ['RHE306', 'M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L'],
-      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'SBS'],
+      ['M427J', 'PHY303E', 'ECE411', 'SBS'],
       ['ECE312', 'ECE313', 'M427L', 'E316', 'CORE9'],
       ['ECE351K', 'CSP325', 'VAPA', 'ADVTECH', 'FREE2'],
       ['ECE333T', 'CSP362K', 'AMHIST', 'CHOICE2', 'CHOICE4'],
@@ -188,7 +194,7 @@
     plan: [
       ['M408C', 'ECE302', 'ECE306', 'RHE306', 'UGS'],
       ['M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L', 'ECE316'],
-      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'E316'],
+      ['M427J', 'PHY303E', 'ECE411', 'E316'],
       ['ECE312', 'ECE313', 'M427L', 'USHIST', 'CORE9'],
       ['GOV310L', 'ECE325', 'ECE339', 'CHOICE2', 'ADVTECH'],
       ['ECE333T', 'ECE438', 'FREE1', 'GOV312', 'CHOICE3'],
@@ -213,7 +219,7 @@
     plan: [
       ['M408C', 'ECE302', 'ECE306', 'UGS', 'CORE9'],
       ['RHE306', 'M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L'],
-      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'SBS'],
+      ['M427J', 'PHY303E', 'ECE411', 'SBS'],
       ['ECE312', 'ECE313', 'M427L', 'USHIST', 'E316'],
       ['ECE351K', 'ECE362K', 'AMHIST', 'FREE1', 'FREE3'],
       ['GOV310L', 'ECE333T', 'ESRE462L', 'CHOICE2', 'CHOICE3'],
@@ -237,7 +243,7 @@
     plan: [
       ['M408C', 'ECE302', 'ECE306', 'RHE306', 'UGS'],
       ['M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L', 'VAPA'],
-      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'USHIST'],
+      ['M427J', 'PHY303E', 'ECE411', 'USHIST'],
       ['ECE312', 'ECE313', 'M427L', 'GOV312', 'CORE9'],
       ['ECE333T', 'ECE339', 'CHOICE1', 'FREE1', 'SBS'],
       ['ECE351K', 'FW438', 'E316', 'FREE3', 'FREE4'],
@@ -254,7 +260,7 @@
     plan: [
       ['M408C', 'ECE302', 'ECE306', 'UGS', 'SBS'],
       ['RHE306', 'M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L'],
-      ['M427J', 'PHY303L', 'PHY105N', 'ECE411', 'E316'],
+      ['M427J', 'PHY303E', 'ECE411', 'E316'],
       ['GOV310L', 'ECE312', 'ECE313', 'M427L', 'GOV312'],
       ['ECE351K', 'ECE339', 'CHOICE1', 'AMHIST', 'ADVTECH'],
       ['ECE333T', 'ECE325', 'CHOICE2', 'CHOICE4', 'USHIST'],
@@ -263,4 +269,49 @@
     ],
     critical: 'Electrical-side critical path: ECE 302, ECE 411, ECE 325; ECE 440 is the core lab that gates ECE 364D and senior design.',
   });
+
+  // The general plan: the degree core every concentration shares, with the 26 technical-core hours as slots a student
+  // fills once they pick a concentration. It is the one ECE entry in the major menu; the welcome screen also lists
+  // every concentration. The slots follow the usual concentration shape: a core lab, a 4-hour course, three 3-hour
+  // required courses and three electives.
+  const TC = (code, title, hrs, extra = {}) => ({ code, title, hrs, cat: 'alt', ...extra });
+  const TC_NOTE = 'A required course of your technical core (concentration). Each concentration names its own; see its catalog page or load that concentration from New plan.';
+  FS.define({
+    id: 'ece',
+    group: 'Electrical and Computer Engineering',
+    general: true,
+    name: 'Electrical and Computer Engineering',
+    degree: 'BSECE',
+    dept: 'Chandra Family Department of Electrical and Computer Engineering',
+    hours: 125,
+    categories: { major: 'ECE Degree Core', stem: 'Math and Science', core: 'Core Curriculum', alt: 'Technical Core', tech: 'Free and Technical Electives' },
+    courses: {
+      ...core(['TCLAB']),
+      TCLAB:  TC('Technical Core Lab', 'Technical core laboratory', 4, { pre: ['ECE411', 'ECE313'], co: ['ECE333T'],
+                 note: 'Your concentration\'s core lab: ECE 438, 440, 445L, 445S, 460J, 461L, 462L, 368L/468L or 471C. It must be done (or taken alongside ECE 364D) before senior design.' }),
+      TCORE1: TC('Technical Core', 'Technical core course', 4, { pre: ['ECE312'], note: TC_NOTE }),
+      ...Object.fromEntries(Object.entries(FS.slots('TCORE', 4, TC('Technical Core', 'Technical core course', 3, { note: TC_NOTE }))).filter(([k]) => k !== 'TCORE1')),
+      ...FS.slots('CHOICE', 3, { code: 'Concentration Elective', title: 'Concentration elective', hrs: 3, cat: 'alt', pool: 'conc',
+        note: 'Nine hours from your concentration\'s elective list. Courses here must be letter-graded; 4-hour courses add an hour.' }),
+    },
+    plan: [
+      ['M408C', 'ECE302', 'ECE306', 'RHE306', 'UGS'],
+      ['M408D', 'PHY303K', 'PHY105M', 'ECE319K', 'M340L', 'TCORE2'],
+      ['M427J', 'PHY303E', 'ECE411', 'E316'],
+      ['ECE312', 'ECE313', 'TCORE3', 'SBS', 'CORE9'],
+      ['GOV310L', 'ECE351K', 'ECE333T', 'FREE1', 'GOV312'],
+      ['TCLAB', 'ECE364D', 'CHOICE3', 'USHIST', 'FREE4'],
+      ['TCORE1', 'TCORE4', 'VAPA', 'CHOICE2', 'FREE2'],
+      ['AMHIST', 'CHOICE1', 'ADVTECH', 'ECE464', 'FREE3'],
+    ],
+    pools: { conc: { codes: [...ALL_OPTIONS] } },
+    notes: ['This is the general ECE plan: the degree core with your technical core left as slots. To plan a specific concentration, start a new plan from My plans and choose it.', ...NOTES],
+    links: [
+      { label: 'ECE curriculum page', url: 'https://ece.utexas.edu/academics/undergraduate/curriculum' },
+      { label: '2026-28 flowchart', url: 'https://utexas.box.com/s/tqiylly5fehaapl4nebza8v0shgwpzlz' },
+    ],
+  });
+  // The general plan leads its group.
+  const g = FS.order.find((o) => o.group === 'Electrical and Computer Engineering');
+  g.ids = ['ece', ...g.ids.filter((x) => x !== 'ece')];
 })();

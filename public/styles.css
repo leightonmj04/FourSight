@@ -134,7 +134,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .status.bad:hover { background: #FBE0E0; }
 
 /* ---------- Semester navigator ---------- */
-.semnav { padding: 18px 32px 10px; }
+.semnav { padding: 12px 46px 2px 32px; }
 .semnav-track { position: relative; display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; background: #ECE9E4; border-radius: 12px; padding: 4px; }
 .semnav-window {
   position: absolute; top: 4px; bottom: 4px; left: 4px; width: 100px; border-radius: 9px;
@@ -294,6 +294,10 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .issues li button:hover { background: #FBE3E3; }
 .issues li.warn button { background: #FFF8E5; color: #6B4C00; }
 .issues li b { color: inherit; }
+/* A broken prerequisite fixes itself when clicked; the line under it says so. */
+.issues li .is-fix { display: flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 11.5px; font-weight: 750; letter-spacing: .02em; color: var(--bad); opacity: .8; }
+.issues li .is-fix::before { content: "\2713"; font-size: 11px; }
+.issues li.fixable button:hover .is-fix { opacity: 1; text-decoration: underline; }
 
 
 
@@ -446,6 +450,10 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 
 /* ---------- Settings and profile ---------- */
 .settings-pop { width: 280px; }
+/* A hairline between the settings items keeps each one distinct; it stops short of the edges like the items do. */
+.settings-pop .dl-item { position: relative; }
+.settings-pop .dl-item + .dl-item { margin-top: 9px; }
+.settings-pop .dl-item + .dl-item::before { content: ''; position: absolute; left: 10px; right: 10px; top: -5px; height: 1px; background: #ECE8E2; }
 .pf-h { margin: 22px 0 12px; font-size: 14px; font-weight: 700; color: var(--ink); }
 .pf-form .pf-h:first-child { margin-top: 0; }
 .pf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -993,6 +1001,7 @@ button.wc-major:hover { transform: translateY(-2px); border-color: rgba(191, 87,
   background: #FAF9F7; font-size: 13px; font-weight: 600; color: var(--ink-2); transition: border-color .2s, background .2s, color .2s;
 }
 .wc-conc:hover { border-color: var(--ut); background: #FDF3EA; color: var(--ut-dark); }
+.wc-conc.general { font-weight: 650; }
 .wc-saved { font-size: 11px; font-weight: 700; color: #1F7A43; background: #E9F6EE; border-radius: 999px; padding: 2px 8px; margin-top: 5px; }
 .wc-conc .wc-saved { margin-top: 0; }
 .wc-paste {
@@ -1139,9 +1148,6 @@ button.wc-major:hover { transform: translateY(-2px); border-color: rgba(191, 87,
 @media (max-width: 1420px) {
   .minor-btn { max-width: 170px; }
 }
-@media (max-width: 1320px) {
-  #newPlanBtn .btn-text { display: none; }
-}
 @media (max-width: 1240px) {
   .topbar { flex-wrap: wrap; row-gap: 10px; }
   .topbar-right { margin-left: auto; }
@@ -1161,7 +1167,12 @@ button.wc-major:hover { transform: translateY(-2px); border-color: rgba(191, 87,
 .board-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 46px 0 32px; position: relative; z-index: 3; }
 /* The top bar's menus (Settings, add-ons) open over the planner's header and the view switch. */
 .topbar { z-index: 10; }
-.board-left { display: flex; align-items: center; gap: 18px; min-width: 0; }
+.board-left { display: flex; align-items: center; gap: 18px; min-width: 0; flex: 1 1 auto; }
+.board-right { display: flex; align-items: center; gap: 24px; min-width: 0; flex: none; }
+.board-right .line-keys { flex-wrap: nowrap; white-space: nowrap; }
+/* The open plan's name gives way first when the header is tight; its full name shows on hover. */
+.board-plan { flex: 0 1 auto; min-width: 48px; max-width: 360px; font-size: 13.5px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-left: -8px; }
+.board-title, #typeFilter { flex: none; }
 .board-title { font-size: 11px; font-weight: 750; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
 .view-switch {
   display: inline-flex; padding: 3px; gap: 2px; border-radius: 10px; flex: none;
@@ -1298,3 +1309,47 @@ button.wc-major:hover { transform: translateY(-2px); border-color: rgba(191, 87,
 .td-tick svg { width: 11px; height: 11px; fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; opacity: 0; }
 .td-item.sel .td-tick { background: var(--ut); border-color: var(--ut); }
 .td-item.sel .td-tick svg { opacity: 1; }
+
+/* ---------- My plans ---------- */
+.pl-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: min(52vh, 460px); overflow-y: auto; }
+.pl-row {
+  display: flex; align-items: center; gap: 14px; padding: 12px 12px 12px 16px; border-radius: 12px;
+  border: 1px solid var(--line); background: #fff;
+}
+.pl-row.current { border-color: rgba(191, 87, 0, .35); background: #FFFAF5; }
+.pl-main { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; row-gap: 2px; flex: 1; min-width: 0; }
+.pl-name { font-size: 14.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.pl-cur { font-size: 10.5px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; color: var(--ut-dark); background: #FBEBDD; border-radius: 99px; padding: 2px 8px; }
+.pl-meta { flex-basis: 100%; font-size: 12px; color: var(--ink-3); }
+.pl-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.pl-actions .btn { padding: 6px 11px; font-size: 12.5px; }
+.pl-del { color: var(--ink-3); padding: 6px 8px !important; }
+.pl-del svg { width: 15px; height: 15px; }
+.pl-del:hover { color: var(--bad); border-color: rgba(224, 53, 59, .4); background: #FDF2F2; }
+.pl-confirm { font-size: 12.5px; color: var(--bad); font-weight: 600; margin-right: 4px; }
+.pl-del-go { background: var(--bad); border-color: var(--bad); color: #fff; }
+.pl-del-go:hover { background: #C42B30; border-color: #C42B30; }
+.pl-rename { display: flex; gap: 8px; flex: 1; }
+.pl-rename input { flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid #CFCAC2; border-radius: 9px; font: inherit; font-size: 14px; }
+.pl-rename input:focus { outline: 2px solid var(--ut); outline-offset: 0; border-color: transparent; }
+.pl-empty { padding: 18px; text-align: center; color: var(--ink-3); font-size: 13px; }
+/* The My plans screen: title with New plan beside it, then every plan. */
+.pl-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+.pl-head h1 { margin-bottom: 0; }
+.pl-head + .wc-sub { margin-top: 12px; }
+.pl-new { flex: none; margin-bottom: 6px; }
+.pl-new svg { width: 15px; height: 15px; }
+#wcStage .pl-list { max-height: none; overflow: visible; margin-top: 18px; }
+#wcStage .pl-row { padding: 14px 14px 14px 18px; box-shadow: 0 1px 2px rgba(0, 0, 0, .03); }
+@media (max-width: 1400px) {
+  .board-left { gap: 14px; }
+  .board-right { gap: 18px; }
+  .board-right .line-keys { gap: 12px; font-size: 12px; }
+  .board-right .line-keys span { gap: 5px; }
+  .board-right .line-keys svg { width: 18px; }
+  .board-bar .td-btn { min-width: 0; }
+}
+
+/* A heading inside a track (a preparation sequence's introductory or advanced coursework) reads under the track name. */
+.mn-sub .mn-sub { margin-top: 8px; }
+.mn-sub .mn-sub > b { font-size: 12px; text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--ink-3); }

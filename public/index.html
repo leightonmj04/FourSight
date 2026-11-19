@@ -37,10 +37,6 @@
         <button class="btn minor-btn addon-cert" id="certBtn"></button>
       </div>
       <div class="topbar-right">
-        <button class="btn" id="newPlanBtn" title="Start a different plan">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          <span class="btn-text">New plan</span>
-        </button>
         <button class="btn panel-toggle" id="panelToggle" aria-expanded="true" aria-controls="panels">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 14 5-5 5 5"/></svg>
           <span id="panelToggleText">Hide audit</span>
@@ -54,6 +50,10 @@
             <button class="dl-item" role="menuitem" id="profileBtn">
               <span class="dl-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span>
               <span class="dl-copy"><strong>Profile</strong><span>Your semesters, college, major and contact details.</span></span>
+            </button>
+            <button class="dl-item" role="menuitem" id="plansBtn">
+              <span class="dl-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z"/></svg></span>
+              <span class="dl-copy"><strong>My plans</strong><span>Open, rename or delete your saved plans, or start a new one.</span></span>
             </button>
             <button class="dl-item" role="menuitem" id="colorsBtn">
               <span class="dl-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 0 0 18c1.2 0 1.8-.9 1.8-1.8 0-1.3-1-1.6-1-2.7 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3Z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10" cy="7" r="1.2"/><circle cx="15" cy="7.5" r="1.2"/></svg></span>
@@ -127,27 +127,18 @@
       <div class="minor-strip addon-cert" id="certStrip" hidden></div>
     </section>
 
-    <nav class="semnav" id="semnav" aria-label="Jump to semester">
-      <div class="semnav-track">
-        <div class="semnav-window" id="semnavWindow"></div>
-      </div>
-    </nav>
     </div>
     </div>
 
-    <div class="pin-anchor">
-      <div class="pin-chip" id="pinChip" hidden>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 3.5 3.5h-11L10 10 9 4Z"/><path d="M12 13.5V20"/></svg>
-        <button class="pin-chip-go" id="pinChipGo" title="Scroll to this course">Pinned: <strong id="pinChipCode"></strong></button>
-        <button class="pin-chip-close" id="pinChipClose" aria-label="Unpin"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
-      </div>
-    </div>
     <!-- The planner's own header, so the view switch stays when the audit and toolbar are hidden. -->
     <div class="board-bar">
       <div class="board-left">
         <span class="board-title">4-Year Plan</span>
+        <span class="board-plan" id="planName" hidden></span>
         <div id="typeFilter"></div>
       </div>
+      <div class="board-right">
+        <div id="lineKeys"></div>
       <div class="view-switch" id="viewSwitch" role="group" aria-label="How to show your plan">
         <button data-view="columns" aria-pressed="true" title="Each semester as a column, with course names">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="5" height="15" rx="1.5"/><rect x="9.5" y="4.5" width="5" height="15" rx="1.5"/><rect x="15.5" y="4.5" width="5" height="15" rx="1.5"/></svg>Columns
@@ -155,6 +146,20 @@
         <button data-view="overview" aria-pressed="false" title="Every semester as a row, top to bottom, so the whole plan fits on screen">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4" width="17" height="4" rx="1.5"/><rect x="3.5" y="10" width="17" height="4" rx="1.5"/><rect x="3.5" y="16" width="17" height="4" rx="1.5"/></svg>Overview
         </button>
+      </div>
+      </div>
+    </div>
+    <!-- The semester bar belongs to the 4-year plan, so it stays when the audit is hidden. -->
+    <nav class="semnav" id="semnav" aria-label="Jump to semester">
+      <div class="semnav-track">
+        <div class="semnav-window" id="semnavWindow"></div>
+      </div>
+    </nav>
+    <div class="pin-anchor">
+      <div class="pin-chip" id="pinChip" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 3.5 3.5h-11L10 10 9 4Z"/><path d="M12 13.5V20"/></svg>
+        <button class="pin-chip-go" id="pinChipGo" title="Scroll to this course">Pinned: <strong id="pinChipCode"></strong></button>
+        <button class="pin-chip-close" id="pinChipClose" aria-label="Unpin"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
       </div>
     </div>
     <main class="viewport" id="viewport">
