@@ -1,4 +1,5 @@
-// Electrical and Computer Engineering/Business Administration, Honors (BSECE/BBA), 2026-28 catalog, 159 hours. Requirements, plan of study and prerequisites from the UT Austin
+// Electrical and Computer Engineering/Business Administration, Honors (BSECE/BBA), 2026-28 catalog, 158 hours (159 in the
+// catalog plan of study, which still lists PHY 303L and 105N; PHY 303E, one hour less, replaces them). Requirements, plan of study and prerequisites from the UT Austin
 // undergraduate catalog; the semester order is the catalog's plan of study.
 FS.define({
   "id": "ecb",
@@ -6,7 +7,7 @@ FS.define({
   "degree": "BSECE/BBA",
   "college": "Business",
   "dept": "Red McCombs School of Business",
-  "hours": 159,
+  "hours": 158,
   "categories": {
     "major": "Electrical and Computer Engineering",
     "stem": "Math and Analytics",
@@ -201,30 +202,20 @@ FS.define({
       ],
       "note": "Catalog prerequisite: Accounting 311H and Business Administration 151H. Restrictions: Restricted to students admitted to the McCombs School of Business Honors Program."
     },
-    "PHY303L": {
-      "code": "PHY 303L",
-      "title": "Engineering Physics II",
+    "PHY303E": {
+      "code": "PHY 303E",
+      "title": "Electromagnetic, Quantum, and Semiconductor Physics",
       "hrs": 3,
       "cat": "stem",
       "pre": [
+        "ECE302H",
         "PHY303K",
         "PHY105M"
       ],
       "co": [
-        "M408D",
-        "PHY105N"
+        "M408D"
       ],
-      "note": "Catalog prerequisite: Physics 303K and 103M or 105M with a grade of at least C- in each; credit with a grade of at least C- or registration in Mathematics 408D or 408M, and Physics 103N or 105N."
-    },
-    "PHY105N": {
-      "code": "PHY 105N",
-      "title": "Laboratory For Physics 302L, 303L, and 317L",
-      "hrs": 1,
-      "cat": "stem",
-      "co": [
-        "PHY303L"
-      ],
-      "note": "Catalog prerequisite: Credit with a grade of at least C- or registration for Physics 302L, 303L or 317L."
+      "note": "Catalog prerequisite: Electrical and Computer Engineering 302 or 302H, and Physics 303K with 103M or 105M, each with a grade of at least C-; credit with a grade of at least C- or registration for Mathematics 408D or 408M. The 2026-28 catalog replaces PHY 303L and PHY 105N with PHY 303E."
     },
     "ACC311H": {
       "code": "ACC 311H",
@@ -249,8 +240,7 @@ FS.define({
         "ECE302H"
       ],
       "co": [
-        "PHY303L",
-        "PHY105N"
+        "PHY303E"
       ],
       "note": "Catalog prerequisite: Electrical and Computer Engineering 302 (or Electrical Engineering 302) or 302H (or Electrical Engineering 302H) with a grade of at least B; credit with a grade of at least C- or registration for Mathematics 427J or 427K; credit with a grade of at least C- or registration for Physics 303E, or Physics 303L and 105N or 103N."
     },
@@ -366,8 +356,7 @@ FS.define({
         "ECE302H"
       ],
       "co": [
-        "PHY303L",
-        "PHY105N"
+        "PHY303E"
       ],
       "note": "Catalog prerequisite: One of the following with a grade of at least C-: Electrical and Computer Engineering 302 (or Electrical Engineering 302) or 302H (or Electrical Engineering 302H); credit with a grade of at least C- or registration for Mathematics 427J or 427K; credit with a grade of at least C- or registration for Physics 303E, or Physics 303L and 105N or 103N."
     },
@@ -592,8 +581,7 @@ FS.define({
       "AAT_19",
       "MAN327H",
       "STA301H",
-      "PHY303L",
-      "PHY105N",
+      "PHY303E",
       "BAH110G",
       "BAH151H"
     ],
@@ -701,6 +689,7 @@ FS.define({
     "Students may appeal to take an ECE graduate course for undergraduate credit to substitute for ECE Honors credit, but are not permitted to exceed 6 hours of graduate coursework for honors requirements. Note that this does not apply for graduate courses taken for graduate credit as part of a graduate or integrated BSECE/MSECE program.",
     "To graduate under the ECB program, the student must earn a university GPA of at least 3.25, a GPA of at least 3.25 in business courses, and a GPA of at least a 3.3 in electrical and computer engineering courses. A candidate for any degree must be enrolled at The University of Texas at Austin in the semester or summer session in which the degree is awarded.",
     "Students in the ECB program must satisfy the university Core Curriculum and the combined degree requirements for a Bachelor of Science in Electrical and Computer Engineering with the ECE Honors transcript distinction and a Bachelor in Business Administration. If students later elect to complete only one degree, they must consult their academic advisor(s) and fulfill all degree requirements.",
+    "The 2026-28 catalog replaces PHY 303L and PHY 105N (4 hours) with PHY 303E (3 hours), so this plan totals 158 hours instead of the 159 in the catalog's plan of study. Confirm the hour total with your advisors.",
     "The semester order follows the catalog's plan of study, except that FourSight moved 25 courses the catalog places before their prerequisites. Prerequisites come from the catalog's course listings."
   ],
   "links": [
